@@ -79,6 +79,21 @@ npm run dev
 
 Then open http://localhost:5173 in your browser.
 
+## Provider: OpenRouter vs Ollama (Local)
+
+You can now use either OpenRouter (cloud, paid) or Ollama (local, free) as the LLM provider.
+
+- To use Ollama by default, update `.env` and set `USE_OLLAMA=true` and configure `OLLAMA_API_URL` and `OLLAMA_USE_CLI` if you want automatic CLI installs.
+- Start the app as usual with `./start.sh` or `uv run python -m backend.main` and `npm run dev` for the frontend.
+
+In the UI (Sidebar) you can switch between providers. When Ollama is selected, a new section appears allowing you to:
+
+- See detected **installed** Ollama models (via the local Ollama API or CLI).
+- See **recommended** models that are not installed and an `Install` action to pull them (if `OLLAMA_USE_CLI` is configured on the backend).
+- Add/remove models to the Council and pick the **Chairman** model (persisted in `data/conversations/config.json`).
+
+Note: If you switch to `ollama` provider and your existing council contains OpenRouter model IDs, update the council to local Ollama model names to ensure the calls succeed.
+
 ## Tech Stack
 
 - **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API

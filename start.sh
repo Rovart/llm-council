@@ -38,6 +38,8 @@ wait_for_http() {
 	return 1
 }
 
+PID_DIR="$ROOT_DIR/.pids"
+mkdir -p "$PID_DIR"
 OLLAMA_STARTED_PID=""
 if [ "${USE_OLLAMA:-false}" = "true" ] || [ "${USE_OLLAMA:-false}" = "1" ]; then
 	echo "USE_OLLAMA is enabled — attempting to start Ollama (if installed)."
@@ -76,6 +78,7 @@ fi
 echo "Starting backend on http://localhost:8001..."
 uv run python -m backend.main &
 BACKEND_PID=$!
+echo "$BACKEND_PID" > "$PID_DIR/backend.pid"
 
 # Wait a bit for backend to start
 sleep 2
@@ -85,6 +88,7 @@ echo "Starting frontend on http://localhost:5173..."
 cd frontend
 npm run dev &
 FRONTEND_PID=$!
+echo "$FRONTEND_PID" > "$PID_DIR/frontend.pid"
 
 echo ""
 echo "✓ LLM Council is running!"
@@ -92,18 +96,15 @@ echo "  Backend:  http://localhost:8001"
 echo "  Frontend: http://localhost:5173"
 if [ -n "$OLLAMA_STARTED_PID" ]; then
 	echo "  Ollama:   ${OLLAMA_API_URL:-http://localhost:11434} (pid $OLLAMA_STARTED_PID)"
+	echo "$OLLAMA_STARTED_PID" > "$PID_DIR/ollama.pid"
 fi
 echo ""
 echo "Press Ctrl+C to stop servers"
 
 # Cleanup on exit
 cleanup() {
-	echo "Stopping services..."
-	kill "$FRONTEND_PID" "$BACKEND_PID" 2>/dev/null || true
-	if [ -n "$OLLAMA_STARTED_PID" ]; then
-		echo "Stopping Ollama (pid $OLLAMA_STARTED_PID)"
-		kill "$OLLAMA_STARTED_PID" 2>/dev/null || true
-	fi
+	echo "Stopping services via stop.sh"
+	"$ROOT_DIR/stop.sh" || true
 	exit 0
 }
 

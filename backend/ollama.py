@@ -20,9 +20,28 @@ import httpx
 
 from .config import OLLAMA_API_URL, OLLAMA_USE_CLI, OLLAMA_CLI_PATH
 
+# Try multiple endpoints for Ollama generation
+OLLAMA_GENERATE_ENDPOINTS = [
+    '/api/generate',
+    '/v1/generate',
+    '/generate',
+    '/v1/predict',
+    '/api/predict',
+    '/v1/completions',
+]
+
+# Try CLI subcommands for generation
+OLLAMA_CLI_GENERATE_CMDS = ['generate', 'run', 'predict']
+
 
 async def _call_ollama_http(model: str, prompt: str, timeout: float = 120.0) -> Optional[Dict[str, Any]]:
-    url = OLLAMA_API_URL.rstrip('/') + '/api/generate'
+    base = OLLAMA_API_URL.rstrip('/')
+    # Try payload variants to support different Ollama API versions
+    payload_variants = [
+        {"model": model, "prompt": prompt},
+        {"model": model, "input": prompt},
+        {"model": model, "messages": [{"role": "user", "content": prompt}]},
+    ]
     payload = {
         "model": model,
         "prompt": prompt,
@@ -30,9 +49,52 @@ async def _call_ollama_http(model: str, prompt: str, timeout: float = 120.0) -> 
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+            for endpoint in OLLAMA_GENERATE_ENDPOINTS:
+                url = base + endpoint
+                for payload in payload_variants:
+                    try:
+                        resp = await client.post(url, json=payload)
+                        resp.raise_for_status()
+                        # Response can be JSON or text, parse after
+                        # We'll attempt to parse JSON below
+                        break
+                    except Exception:
+                        resp = None
+                        continue
+                if resp is not None:
+                    try:
+                        data = resp.json()
+                        break
+                    except ValueError:
+                        # not JSON: try to parse NDJSON or fallback to raw text
+                        text = resp.text
+                        lines = [l for l in text.splitlines() if l.strip()]
+                        for line in lines:
+                            try:
+                                obj = json.loads(line)
+                                if isinstance(obj, dict):
+                                    if 'result' in obj and isinstance(obj['result'], str):
+                                        return {'content': obj['result']}
+                                    if 'generated' in obj and isinstance(obj['generated'], list):
+                                        texts = []
+                                        for g in obj['generated']:
+                                            if isinstance(g, dict):
+                                                texts.append(g.get('text') or g.get('output') or '')
+                                            else:
+                                                texts.append(str(g))
+                                        return {'content': '\n'.join(texts)}
+                                    if 'response' in obj and isinstance(obj['response'], str):
+                                        return {'content': obj['response']}
+                                    if 'data' in obj:
+                                        return {'content': json.dumps(obj['data'])}
+                            except Exception:
+                                continue
+                        # fallback: set data from raw text to be stringified by caller
+                        data = text
+                        break
+            if data is None and resp is None:
+                raise Exception("No Ollama generate endpoint accepted our request")
+            # if data is already a dict (json), we've got it; if data is text, we'll stringify
 
             # Ollama responses vary by version; attempt to extract text sensibly.
             # Common keys: 'result', 'data', or 'generated'. We'll try a few fallbacks.
@@ -62,6 +124,8 @@ async def _call_ollama_http(model: str, prompt: str, timeout: float = 120.0) -> 
             # Fallback: stringify entire response
             return {'content': json.dumps(data)}
 
+        
+
     except Exception as e:
         print(f"Ollama HTTP error for model {model}: {e}")
         return None
@@ -73,29 +137,90 @@ async def _call_ollama_cli(model: str, prompt: str, timeout: float = 120.0) -> O
     It calls: `ollama generate <model> --prompt '<prompt>' --quiet` and captures stdout.
     """
     try:
-        cmd = [OLLAMA_CLI_PATH, 'generate', model, '--prompt', prompt, '--quiet']
+        # Try common CLI subcommands: generate, run, predict
+        last_err = None
+        for subcmd in OLLAMA_CLI_GENERATE_CMDS:
+            if subcmd == 'run':
+                cmd = [OLLAMA_CLI_PATH, 'run', model, prompt, '--format', 'json']
+            elif subcmd == 'generate':
+                cmd = [OLLAMA_CLI_PATH, 'generate', model, '--prompt', prompt]
+            else:
+                cmd = [OLLAMA_CLI_PATH, subcmd, model, prompt]
 
-        # Use asyncio subprocess to not block the loop
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+            # Use asyncio subprocess to not block the loop
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except FileNotFoundError:
+                last_err = f"Ollama CLI not found at: {OLLAMA_CLI_PATH}"
+                break
 
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            return None
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                last_err = 'Timeout waiting for CLI'
+                continue
 
-        if proc.returncode != 0:
-            err = stderr.decode(errors='ignore') if stderr else ''
-            print(f"Ollama CLI error: returncode={proc.returncode} stderr={err}")
-            return None
-
-        text = stdout.decode(errors='ignore')
-        return {'content': text}
+            if proc.returncode == 0:
+                text = stdout.decode(errors='ignore')
+                # Try parsing as JSON or NDJSON
+                try:
+                    obj = json.loads(text)
+                    # similar parsing as HTTP path
+                    if isinstance(obj, dict):
+                        if 'result' in obj and isinstance(obj['result'], str):
+                            return {'content': obj['result']}
+                        if 'generated' in obj and isinstance(obj['generated'], list):
+                            texts = []
+                            for g in obj['generated']:
+                                if isinstance(g, dict):
+                                    texts.append(g.get('text') or g.get('output') or '')
+                                else:
+                                    texts.append(str(g))
+                            return {'content': '\n'.join(texts)}
+                        if 'response' in obj and isinstance(obj['response'], str):
+                            return {'content': obj['response']}
+                        if 'data' in obj:
+                            return {'content': json.dumps(obj['data'])}
+                    # fallback to raw text
+                    return {'content': text}
+                except Exception:
+                    # Might be ndjson or plain text - split and inspect lines
+                    lines = [l for l in text.splitlines() if l.strip()]
+                    for line in lines:
+                        try:
+                            obj = json.loads(line)
+                            if isinstance(obj, dict):
+                                if 'result' in obj and isinstance(obj['result'], str):
+                                    return {'content': obj['result']}
+                                if 'generated' in obj and isinstance(obj['generated'], list):
+                                    texts = []
+                                    for g in obj['generated']:
+                                        if isinstance(g, dict):
+                                            texts.append(g.get('text') or g.get('output') or '')
+                                        else:
+                                            texts.append(str(g))
+                                    return {'content': '\n'.join(texts)}
+                                if 'response' in obj and isinstance(obj['response'], str):
+                                    return {'content': obj['response']}
+                                if 'data' in obj:
+                                    return {'content': json.dumps(obj['data'])}
+                        except Exception:
+                            continue
+                    return {'content': text}
+            else:
+                last_err = stderr.decode(errors='ignore')
+                # try next subcommand
+                continue
+        # If we get here, none worked
+        if last_err:
+            print(f"Ollama CLI errors: {last_err}")
+        return None
 
     except FileNotFoundError:
         print(f"Ollama CLI not found at path: {OLLAMA_CLI_PATH}")

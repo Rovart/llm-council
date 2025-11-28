@@ -45,6 +45,7 @@ export default function ProviderConfig({ provider }) {
   const saveCouncil = async () => {
     try {
       const conf = { ...config };
+      conf.provider = 'ollama';
       if (!conf.council_models) conf.council_models = [];
       await api.setCouncilConfig(conf);
       setMessage('Saved');
@@ -65,13 +66,26 @@ export default function ProviderConfig({ provider }) {
       if (res.success) {
         setMessage(`Installed ${model}`);
         // reload models
-        load();
+        await load();
       } else {
         setMessage(res.output || 'Install failed');
       }
     } catch (e) {
       console.error(e);
       setMessage('Install request failed');
+    }
+  };
+
+  const refreshModels = async () => {
+    setLoading(true);
+    try {
+      const av = await api.listAvailableModels(provider);
+      setAvailable(av.models || []);
+    } catch (e) {
+      console.error(e);
+      setMessage('Failed to refresh models');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -82,6 +96,9 @@ export default function ProviderConfig({ provider }) {
   return (
     <div className="provider-config">
       <h3>Ollama Models</h3>
+      <div>
+        <button onClick={refreshModels} disabled={loading}>Refresh</button>
+      </div>
       {loading && <div>Loading...</div>}
       {message && <div className="message">{message}</div>}
 
