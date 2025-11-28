@@ -101,7 +101,11 @@ async def available_models(provider: str = "ollama"):
 @app.get('/api/council-config')
 async def get_council_config():
     conf = config_store.get_config()
-    return conf
+    # Add recommended list to payload
+    from .config import RECOMMENDED_OLLAMA_MODELS
+    out = dict(conf)
+    out['recommended_ollama_models'] = RECOMMENDED_OLLAMA_MODELS
+    return out
 
 
 @app.post('/api/council-config')
