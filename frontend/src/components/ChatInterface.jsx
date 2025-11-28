@@ -9,6 +9,7 @@ export default function ChatInterface({
   conversation,
   onSendMessage,
   isLoading,
+  provider,
 }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -24,7 +25,7 @@ export default function ChatInterface({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (input.trim() && !isLoading) {
-      onSendMessage(input);
+      onSendMessage(input, provider);
       setInput('');
     }
   };

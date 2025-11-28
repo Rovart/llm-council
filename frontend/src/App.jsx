@@ -9,6 +9,7 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [provider, setProvider] = useState('openrouter');
 
   // Load conversations on mount
   useEffect(() => {
@@ -57,7 +58,7 @@ function App() {
     setCurrentConversationId(id);
   };
 
-  const handleSendMessage = async (content) => {
+  const handleSendMessage = async (content, provider) => {
     if (!currentConversationId) return;
 
     setIsLoading(true);
@@ -89,7 +90,7 @@ function App() {
         messages: [...prev.messages, assistantMessage],
       }));
 
-      // Send message with streaming
+      // Send message with streaming, include selected provider
       await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
@@ -169,7 +170,7 @@ function App() {
           default:
             console.log('Unknown event type:', eventType);
         }
-      });
+      }, provider);
     } catch (error) {
       console.error('Failed to send message:', error);
       // Remove optimistic messages on error
@@ -188,11 +189,14 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        provider={provider}
+        onProviderChange={setProvider}
       />
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
+        provider={provider}
       />
     </div>
   );

@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import './Sidebar.css';
+import ProviderConfig from './ProviderConfig';
 
 export default function Sidebar({
   conversations,
   currentConversationId,
   onSelectConversation,
   onNewConversation,
+  provider,
+  onProviderChange,
 }) {
   return (
     <div className="sidebar">
@@ -14,6 +17,29 @@ export default function Sidebar({
         <button className="new-conversation-btn" onClick={onNewConversation}>
           + New Conversation
         </button>
+      </div>
+
+      <div className="provider-toggle">
+        <label>
+          <input
+            type="radio"
+            name="provider"
+            value="openrouter"
+            checked={provider === 'openrouter'}
+            onChange={() => onProviderChange('openrouter')}
+          />
+          OpenRouter (paid)
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="provider"
+            value="ollama"
+            checked={provider === 'ollama'}
+            onChange={() => onProviderChange('ollama')}
+          />
+          Ollama (local, free)
+        </label>
       </div>
 
       <div className="conversation-list">
@@ -37,6 +63,9 @@ export default function Sidebar({
             </div>
           ))
         )}
+      </div>
+      <div className="sidebar-footer">
+        <ProviderConfig provider={provider} />
       </div>
     </div>
   );

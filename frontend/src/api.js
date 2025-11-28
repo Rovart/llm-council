@@ -49,7 +49,10 @@ export const api = {
   /**
    * Send a message in a conversation.
    */
-  async sendMessage(conversationId, content) {
+  async sendMessage(conversationId, content, provider = null) {
+    const body = { content };
+    if (provider) body.provider = provider;
+
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message`,
       {
@@ -57,7 +60,7 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(body),
       }
     );
     if (!response.ok) {
@@ -73,7 +76,10 @@ export const api = {
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, onEvent) {
+  async sendMessageStream(conversationId, content, onEvent, provider = null) {
+    const body = { content };
+    if (provider) body.provider = provider;
+
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
@@ -81,7 +87,7 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(body),
       }
     );
 
@@ -111,5 +117,37 @@ export const api = {
         }
       }
     }
+  },
+
+  async listAvailableModels(provider = 'ollama') {
+    const response = await fetch(`${API_BASE}/api/available-models?provider=${provider}`);
+    if (!response.ok) throw new Error('Failed to list available models');
+    return response.json();
+  },
+
+  async getCouncilConfig() {
+    const response = await fetch(`${API_BASE}/api/council-config`);
+    if (!response.ok) throw new Error('Failed to get council config');
+    return response.json();
+  },
+
+  async setCouncilConfig(config) {
+    const response = await fetch(`${API_BASE}/api/council-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) throw new Error('Failed to update council config');
+    return response.json();
+  },
+
+  async installOllamaModel(model) {
+    const response = await fetch(`${API_BASE}/api/ollama/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+    if (!response.ok) throw new Error('Failed to install model');
+    return response.json();
   },
 };

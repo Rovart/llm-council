@@ -1,0 +1,23 @@
+.provider-config {
+  padding: 12px;
+  border-top: 1px solid #eee;
+}
+.provider-config h3 {
+  margin: 6px 0;
+}
+.provider-config ul {
+  list-style: none;
+  padding-left: 0;
+}
+.provider-config li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider-config .actions {
+  margin-top: 10px;
+}
+.provider-config .message {
+  color: #666;
+  font-size: 12px;
+}
