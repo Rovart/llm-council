@@ -6,7 +6,7 @@ from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
 from .config_store import get_council_models, get_chairman_model
 
 
-async def stage1_collect_responses(user_query: str, provider: str | None = None) -> List[Dict[str, Any]]:
+async def stage1_collect_responses(user_query: str, provider: str | None = None, prior_context: str | None = None) -> List[Dict[str, Any]]:
     """
     Stage 1: Collect individual responses from all council models.
 
@@ -16,10 +16,28 @@ async def stage1_collect_responses(user_query: str, provider: str | None = None)
     Returns:
         List of dicts with 'model' and 'response' keys
     """
-    messages = [{"role": "user", "content": user_query}]
+    # If prior context (previous final answer) is provided, prepend it to the prompt
+    if prior_context:
+        combined = prior_context + "\n\n" + user_query
+    else:
+        combined = user_query
+    messages = [{"role": "user", "content": combined}]
 
     # Query all models in parallel (use persisted council config if available)
-    council_models = get_council_models() or COUNCIL_MODELS
+    council_models = get_council_models()
+    # If no explicit council models are configured, pick sensible defaults
+    if not council_models:
+        if provider and provider.lower() in ('ollama', 'local'):
+            # prefer installed local models when using Ollama
+            from . import ollama
+            council_models = await ollama.list_models()
+        else:
+            council_models = COUNCIL_MODELS
+    # For Ollama provider, ensure we only call installed models
+    if provider and provider.lower() in ('ollama', 'local'):
+        from . import ollama
+        installed = await ollama.list_models()
+        council_models = [m for m in council_models if m in installed]
     responses = await query_models_parallel(council_models, messages, provider=provider)
 
     # Format results
@@ -30,6 +48,18 @@ async def stage1_collect_responses(user_query: str, provider: str | None = None)
                 "model": model,
                 "response": response.get('content', '')
             })
+
+    # Debug: log a small preview of stage1 results
+    try:
+        preview = []
+        for r in stage1_results:
+            txt = r.get('response', '') or ''
+            if len(txt) > 200:
+                txt = txt[:200] + '...'
+            preview.append({'model': r.get('model'), 'response_preview': txt})
+        print(f"[COUNCIL][STAGE1] results_count={len(stage1_results)} preview={preview}")
+    except Exception:
+        print("[COUNCIL][STAGE1] results preview failed to generate")
 
     return stage1_results
 
@@ -98,7 +128,18 @@ Now provide your evaluation and ranking:"""
     messages = [{"role": "user", "content": ranking_prompt}]
 
     # Get rankings from all council models in parallel
-    council_models = get_council_models() or COUNCIL_MODELS
+    council_models = get_council_models()
+    if not council_models:
+        if provider and provider.lower() in ('ollama', 'local'):
+            from . import ollama
+            council_models = await ollama.list_models()
+        else:
+            council_models = COUNCIL_MODELS
+    # For Ollama provider, filter to only installed models
+    if provider and provider.lower() in ('ollama', 'local'):
+        from . import ollama
+        installed = await ollama.list_models()
+        council_models = [m for m in council_models if m in installed]
     responses = await query_models_parallel(council_models, messages, provider=provider)
 
     # Format results
@@ -120,6 +161,7 @@ async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
+    chairman_model: str | None = None,
     provider: str | None = None
 ) -> Dict[str, Any]:
     """
@@ -146,6 +188,10 @@ async def stage3_synthesize_final(
 
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
 
+IMPORTANT: At the very start of your response include a one-line acknowledgement that you are the Chairman. For example:
+"CHAIRMAN ACKNOWLEDGEMENT: I am the Chairman of this council."
+Only after that acknowledgement, proceed to synthesize and produce the final answer.
+
 Original Question: {user_query}
 
 STAGE 1 - Individual Responses:
@@ -159,23 +205,31 @@ Your task as Chairman is to synthesize all of this information into a single, co
 - The peer rankings and what they reveal about response quality
 - Any patterns of agreement or disagreement
 
-Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
+Provide a clear, well-reasoned final answer that represents the council's collective wisdom. Start your response with the required acknowledgement line exactly as instructed above."""
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model
-    chairman = get_chairman_model() or CHAIRMAN_MODEL
+    chairman = chairman_model or get_chairman_model() or CHAIRMAN_MODEL
     response = await query_model(chairman, messages, provider=provider)
 
     if response is None:
         # Fallback if chairman fails
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman or CHAIRMAN_MODEL,
             "response": "Error: Unable to generate final synthesis."
         }
 
+    # Debug: log chairman response preview
+    try:
+        ctxt = response.get('content', '') or ''
+        preview = ctxt if len(ctxt) <= 300 else ctxt[:300] + '...'
+        print(f"[COUNCIL][STAGE3] chairman={chairman} preview={preview}")
+    except Exception:
+        print(f"[COUNCIL][STAGE3] chairman={chairman} preview failed")
+
     return {
-        "model": CHAIRMAN_MODEL,
+        "model": chairman or CHAIRMAN_MODEL,
         "response": response.get('content', '')
     }
 
@@ -280,8 +334,20 @@ Title:"""
 
     messages = [{"role": "user", "content": title_prompt}]
 
-    # Use gemini-2.5-flash for title generation (fast and cheap)
-    response = await query_model("google/gemini-2.5-flash", messages, timeout=30.0, provider=provider)
+    # Choose a title-generation model appropriate to the provider.
+    # For Ollama, prefer an installed local model; for OpenRouter, use gemini-2.5-flash.
+    title_model = "google/gemini-2.5-flash"
+    if provider and str(provider).lower() in ('ollama', 'local'):
+        try:
+            from . import ollama
+            installed = await ollama.list_models()
+            # pick the first installed model if available
+            if installed:
+                title_model = installed[0]
+        except Exception:
+            title_model = "google/gemini-2.5-flash"
+
+    response = await query_model(title_model, messages, timeout=30.0, provider=provider)
 
     if response is None:
         # Fallback to a generic title
@@ -299,7 +365,7 @@ Title:"""
     return title
 
 
-async def run_full_council(user_query: str, provider: str | None = None) -> Tuple[List, List, Dict, Dict]:
+async def run_full_council(user_query: str, provider: str | None = None, prior_context: str | None = None) -> Tuple[List, List, Dict, Dict]:
     """
     Run the complete 3-stage council process.
 
@@ -309,8 +375,11 @@ async def run_full_council(user_query: str, provider: str | None = None) -> Tupl
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
     """
-    # Stage 1: Collect individual responses
-    stage1_results = await stage1_collect_responses(user_query, provider=provider)
+    # Combine prior context and user query if prior_context supplied
+    combined_query = prior_context + "\n\n" + user_query if prior_context else user_query
+
+    # Stage 1: Collect individual responses (stage1 accepts prior_context as well)
+    stage1_results = await stage1_collect_responses(user_query, provider=provider, prior_context=prior_context)
 
     # If no models responded successfully, return error
     if not stage1_results:
@@ -320,16 +389,27 @@ async def run_full_council(user_query: str, provider: str | None = None) -> Tupl
         }, {}
 
     # Stage 2: Collect rankings
-    stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results, provider=provider)
+    stage2_results, label_to_model = await stage2_collect_rankings(combined_query, stage1_results, provider=provider)
 
     # Calculate aggregate rankings
     aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
 
+    # Get and filter chairman model for Ollama
+    chairman_model = get_chairman_model() or CHAIRMAN_MODEL
+    if provider and provider.lower() in ('ollama', 'local'):
+        from . import ollama
+        installed = await ollama.list_models()
+        if chairman_model not in installed:
+            # Use the first council model as chairman if available
+            council_models = [r['model'] for r in stage1_results]
+            chairman_model = council_models[0] if council_models else None
+
     # Stage 3: Synthesize final answer
     stage3_result = await stage3_synthesize_final(
-        user_query,
+        combined_query,
         stage1_results,
         stage2_results,
+        chairman_model=chairman_model,
         provider=provider
     )
 
