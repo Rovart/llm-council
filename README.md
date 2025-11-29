@@ -27,6 +27,17 @@ In a bit more detail, here is what happens when you submit a query:
 
 These changes aim to make local experimentation with models (via Ollama) easier and to keep longer conversations coherent while staying within model context limits.
 
+## Redesign (UI polish)
+
+- The frontend has received a visual refresh focused on clarity and modern, subtle affordances:
+    - Pill-style model chips for recommended models that present the family name consistently.
+    - Matching, aligned selects for candidate versions so chips and dropdowns share height and baseline.
+    - Modernized control buttons (gear, refresh, modal-close) with light backgrounds, subtle shadows and hover elevations.
+    - Destructive actions (Uninstall) use a clear red button style to avoid accidental clicks.
+    - The conversation UI now always shows the input box and surfaces summary messages with metadata so users can distinguish compacted prior context.
+
+These visual changes focus on usability and reducing visual clutter while keeping interactions obvious and accessible.
+
 ## Vibe Code Alert
 
 This project was 99% vibe coded as a fun Saturday hack because I wanted to explore and evaluate a number of LLMs side by side in the process of [reading books together with LLMs](https://x.com/karpathy/status/1990577951671509438). It's nice and useful to see multiple responses side by side, and also the cross-opinions of all LLMs on each other's outputs. I'm not going to support it in any way, it's provided here as is for other people's inspiration and I don't intend to improve it. Code is ephemeral now and libraries are over, ask your LLM to change it in whatever way you like.
