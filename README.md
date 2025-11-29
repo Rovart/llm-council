@@ -10,6 +10,23 @@ In a bit more detail, here is what happens when you submit a query:
 2. **Stage 2: Review**. Each individual LLM is given the responses of the other LLMs. Under the hood, the LLM identities are anonymized so that the LLM can't play favorites when judging their outputs. The LLM is asked to rank them in accuracy and insight.
 3. **Stage 3: Final response**. The designated Chairman of the LLM Council takes all of the model's responses and compiles them into a single final answer that is presented to the user.
 
+## New Features
+
+- **Ollama Provider (local)**: You can now use Ollama as a local, free provider alongside the existing OpenRouter option. When `ollama` is selected from the Sidebar provider switch the app will:
+    - Detect installed models via the Ollama HTTP API or CLI.
+    - Show a list of installed models and let you add/remove them from the Council.
+    - Offer recommended model families and specific candidate versions (tags) that you can select and install via the UI.
+    - Stream install/uninstall logs in the modal so you can watch progress and diagnose failures.
+
+- **Model selection & versions**: Recommended model entries expose a family (general name) and specific candidate versions. The UI shows the family name in the model chip while the select lists only the specific candidate versions (no duplicate family name in the dropdown). You can install a different version of an already-installed family.
+
+- **Conversation context summarization**: To improve multi-turn continuity, the backend now includes a prior-context summarization flow:
+    - The most recent assistant final answers (up to a 10-message window) are preserved and sent as context.
+    - Older assistant final answers are summarized (synchronously or in the background, depending on size and threshold) and appended as a compact assistant message so the LLMs still get the gist of earlier conversation without exceeding token limits.
+    - Summaries include metadata so the UI can surface them differently (e.g., a short label indicating the content is a summary).
+
+These changes aim to make local experimentation with models (via Ollama) easier and to keep longer conversations coherent while staying within model context limits.
+
 ## Vibe Code Alert
 
 This project was 99% vibe coded as a fun Saturday hack because I wanted to explore and evaluate a number of LLMs side by side in the process of [reading books together with LLMs](https://x.com/karpathy/status/1990577951671509438). It's nice and useful to see multiple responses side by side, and also the cross-opinions of all LLMs on each other's outputs. I'm not going to support it in any way, it's provided here as is for other people's inspiration and I don't intend to improve it. Code is ephemeral now and libraries are over, ask your LLM to change it in whatever way you like.
