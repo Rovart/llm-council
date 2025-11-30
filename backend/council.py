@@ -73,7 +73,8 @@ async def stage1_collect_responses(
 async def stage2_collect_rankings(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
-    provider: str | None = None
+    provider: str | None = None,
+    stream: bool = False
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Stage 2: Each model ranks the anonymized responses.
@@ -153,6 +154,20 @@ Now provide your evaluation and ranking:"""
             return False
             
         council_models = [m for m in council_models if is_available(m)]
+    # If streaming requested, return an async generator that yields metadata
+    # and then per-model chunks coming from the llm client stream helper.
+    if stream:
+        from .llm_client import query_models_parallel_stream
+
+        async def _stream_gen():
+            # Send metadata first so caller knows label mapping
+            yield ('metadata', {'label_to_model': label_to_model})
+            gen = query_models_parallel_stream(council_models, messages, provider=provider)
+            async for model_name, chunk in gen:
+                yield (model_name, chunk)
+
+        return _stream_gen()
+
     responses = await query_models_parallel(council_models, messages, provider=provider)
 
     # Format results
