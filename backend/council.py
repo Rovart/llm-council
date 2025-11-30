@@ -1,72 +1,67 @@
 """3-stage LLM Council orchestration."""
 
 from typing import List, Dict, Any, Tuple
-from .llm_client import query_models_parallel, query_model
+from .llm_client import query_models_parallel, query_model, query_models_parallel_stream
 from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
 from .config_store import get_council_models, get_chairman_model
 
 
-async def stage1_collect_responses(user_query: str, provider: str | None = None, prior_context: str | None = None) -> List[Dict[str, Any]]:
+async def stage1_collect_responses(
+    user_query: str,
+    provider: str | None = None,
+    prior_context: List[Dict[str, str]] | None = None,
+    stream: bool = False
+):
     """
-    Stage 1: Collect individual responses from all council models.
-
+    Stage 1: Collect individual responses from council members.
+    
     Args:
-        user_query: The user's question
-
-    Returns:
-        List of dicts with 'model' and 'response' keys
+        user_query: The user's query
+        provider: Provider to use
+        prior_context: Previous conversation history
+        stream: If True, returns async generator yielding (model, chunk). If False, returns list of results.
     """
-    # Prioritize user's new message - put it first, then context as supplementary
+    council_members = get_council_models()
+    if not council_members:
+        council_members = COUNCIL_MODELS
+
+    # Build the prompt messages. prior_context may be a string (joined finals)
+    # or a list of message dicts; handle both cases.
     if prior_context:
-        combined = user_query + "\n\nFor context, here are previous responses:\n" + prior_context
-    else:
-        combined = user_query
-    messages = [{"role": "user", "content": combined}]
-
-    # Query all models in parallel (use persisted council config if available)
-    council_models = get_council_models()
-    # If no explicit council models are configured, pick sensible defaults
-    if not council_models:
-        if provider and provider.lower() in ('ollama', 'local'):
-            # prefer installed local models when using Ollama
-            from . import ollama
-            council_models = await ollama.list_models()
+        if isinstance(prior_context, str):
+            combined = prior_context + "\n\n" + user_query
+            messages = [{"role": "user", "content": combined}]
         else:
-            council_models = COUNCIL_MODELS
-    # For Ollama provider, ensure we only call installed models
-    if provider and provider.lower() in ('ollama', 'local'):
-        from . import ollama
-        installed = await ollama.list_models()
-        
-        def is_available(m):
-            if m in installed: return True
-            if f"{m}:latest" in installed: return True
-            if m.endswith(":latest") and m[:-7] in installed: return True
-            return False
-            
-        council_models = [m for m in council_models if is_available(m)]
-    responses = await query_models_parallel(council_models, messages, provider=provider)
+            # assume list of dict messages; append the user query
+            messages = list(prior_context) + [{"role": "user", "content": user_query}]
+    else:
+        messages = [{"role": "user", "content": user_query}]
 
-    # Format results
+    # If Ollama provider, prefer installed models only
+    if provider and str(provider).lower() in ('ollama', 'local'):
+        try:
+            from . import ollama
+            installed = await ollama.list_models()
+            council_members = [m for m in council_members if m in installed]
+        except Exception:
+            pass
+
+    # Streaming mode: delegate to llm_client.query_models_parallel_stream
+    if stream:
+        from .llm_client import query_models_parallel_stream
+        return await query_models_parallel_stream(council_members, messages, provider=provider)
+
+    # Non-streaming: query all models in parallel and return formatted results
+    from .llm_client import query_models_parallel
+    responses = await query_models_parallel(council_members, messages, provider=provider)
+
     stage1_results = []
-    for model, response in responses.items():
-        if response is not None:  # Only include successful responses
+    for model, resp in (responses or {}).items():
+        if resp is not None:
             stage1_results.append({
-                "model": model,
-                "response": response.get('content', '')
+                'model': model,
+                'response': resp.get('content', '')
             })
-
-    # Debug: log a small preview of stage1 results
-    try:
-        preview = []
-        for r in stage1_results:
-            txt = r.get('response', '') or ''
-            if len(txt) > 200:
-                txt = txt[:200] + '...'
-            preview.append({'model': r.get('model'), 'response_preview': txt})
-        print(f"[COUNCIL][STAGE1] results_count={len(stage1_results)} preview={preview}")
-    except Exception:
-        print("[COUNCIL][STAGE1] results preview failed to generate")
 
     return stage1_results
 
@@ -176,8 +171,9 @@ async def stage3_synthesize_final(
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
     chairman_model: str | None = None,
-    provider: str | None = None
-) -> Dict[str, Any]:
+    provider: str | None = None,
+    stream: bool = False
+):
     """
     Stage 3: Chairman synthesizes final response.
 
@@ -185,9 +181,13 @@ async def stage3_synthesize_final(
         user_query: The original user query
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
+        chairman_model: Optional chairman model override
+        provider: Provider to use
+        stream: If True, returns an async generator yielding chunks. If False, returns complete response dict.
 
     Returns:
-        Dict with 'model' and 'response' keys
+        If stream=False: Dict with 'model' and 'response' keys
+        If stream=True: Async generator yielding chunk dicts
     """
     # Build comprehensive context for chairman
     stage1_text = "\n\n".join([
@@ -221,7 +221,12 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     # Query the chairman model
     chairman = chairman_model or get_chairman_model() or CHAIRMAN_MODEL
-    response = await query_model(chairman, messages, provider=provider)
+    
+    if stream:
+        return _stage3_synthesize_final_stream(chairman, messages, provider)
+    
+    # Non-streaming mode (original implementation)
+    response = await query_model(chairman, messages, provider=provider, stream=False)
 
     if response is None:
         # Fallback if chairman fails
@@ -242,6 +247,37 @@ Provide a clear, well-reasoned final answer that represents the council's collec
         "model": chairman or CHAIRMAN_MODEL,
         "response": response.get('content', '')
     }
+
+
+async def _stage3_synthesize_final_stream(chairman, messages, provider):
+    """Helper generator for streaming stage3 response."""
+    accumulated_response = ""
+    # Note: query_model with stream=True returns a generator, so we await it to get the generator
+    # then iterate.
+    generator = await query_model(chairman, messages, provider=provider, stream=True)
+    async for chunk in generator:
+        if chunk.get('type') == 'chunk':
+            content = chunk.get('content', '')
+            accumulated_response += content
+            # Yield the chunk for frontend display
+            yield {
+                'type': 'chunk',
+                'content': content,
+                'model': chairman
+            }
+        elif chunk.get('type') == 'done':
+            # Yield final complete response
+            yield {
+                'type': 'done',
+                'model': chairman,
+                'response': accumulated_response
+            }
+        elif chunk.get('type') == 'error':
+            yield {
+                'type': 'error',
+                'model': chairman,
+                'message': chunk.get('message', 'Unknown error')
+            }
 
 
 def parse_ranking_from_text(ranking_text: str) -> List[str]:
