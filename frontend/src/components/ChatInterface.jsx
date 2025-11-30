@@ -9,9 +9,11 @@ export default function ChatInterface({
   conversation,
   onSendMessage,
   isLoading,
+  skipStages,
   provider,
 }) {
   const [input, setInput] = useState('');
+  const [skipStagesToggle, setSkipStagesToggle] = useState(false);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -25,7 +27,7 @@ export default function ChatInterface({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (input.trim() && !isLoading) {
-      onSendMessage(input, provider);
+      onSendMessage(input, provider, skipStagesToggle);
       setInput('');
     }
   };
@@ -71,37 +73,59 @@ export default function ChatInterface({
                 </div>
               ) : (
                 <div className="assistant-message">
-                  <div className="message-label">LLM Council</div>
+                  <div className="message-label">{msg.skipStages ? 'Assistant' : 'LLM Council'}</div>
 
-                  {/* Stage 1 */}
-                  {msg.loading?.stage1 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 1: Collecting individual responses...</span>
+                  {msg.stage3?.metadata?.summarized_count && (
+                    <div className="summary-indicator">
+                      <strong>Summary:</strong>{' '}
+                      Summarized {msg.stage3.metadata.summarized_count} messages
+                      {msg.stage3.metadata.chairman_model ? ` — by ${msg.stage3.metadata.chairman_model}` : ''}
+                      {msg.stage3.metadata.summary_generated_at ? ` — ${new Date(msg.stage3.metadata.summary_generated_at).toLocaleString()}` : ''}
                     </div>
                   )}
-                  {msg.stage1 && <Stage1 responses={msg.stage1} />}
 
-                  {/* Stage 2 */}
-                  {msg.loading?.stage2 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 2: Peer rankings...</span>
-                    </div>
-                  )}
-                  {msg.stage2 && (
-                    <Stage2
-                      rankings={msg.stage2}
-                      labelToModel={msg.metadata?.label_to_model}
-                      aggregateRankings={msg.metadata?.aggregate_rankings}
-                    />
+                  {/* Only show stage details if not skipping */}
+                  {!msg.skipStages && (
+                    <>
+                      {/* Stage 1 */}
+                      {msg.loading?.stage1 && (
+                        <div className="stage-loading">
+                          <div className="spinner"></div>
+                          <span>Running Stage 1: Collecting individual responses...</span>
+                        </div>
+                      )}
+                      {msg.stage1 && <Stage1 responses={msg.stage1} />}
+
+                      {/* Stage 2 */}
+                      {msg.loading?.stage2 && (
+                        <div className="stage-loading">
+                          <div className="spinner"></div>
+                          <span>Running Stage 2: Peer rankings...</span>
+                        </div>
+                      )}
+                      {msg.stage2 && (
+                        <Stage2
+                          rankings={msg.stage2}
+                          labelToModel={msg.metadata?.label_to_model}
+                          aggregateRankings={msg.metadata?.aggregate_rankings}
+                        />
+                      )}
+
+                      {/* Stage 3 */}
+                      {msg.loading?.stage3 && (
+                        <div className="stage-loading">
+                          <div className="spinner"></div>
+                          <span>Running Stage 3: Final synthesis...</span>
+                        </div>
+                      )}
+                    </>
                   )}
 
-                  {/* Stage 3 */}
-                  {msg.loading?.stage3 && (
-                    <div className="stage-loading">
+                  {/* Always show final response (Stage 3), but without loading indicator if skipping */}
+                  {msg.skipStages && msg.loading?.stage3 && (
+                    <div className="loading-indicator">
                       <div className="spinner"></div>
-                      <span>Running Stage 3: Final synthesis...</span>
+                      <span>Thinking...</span>
                     </div>
                   )}
                   {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
@@ -111,7 +135,7 @@ export default function ChatInterface({
           ))
         )}
 
-        {isLoading && (
+        {isLoading && !skipStages && (
           <div className="loading-indicator">
             <div className="spinner"></div>
             <span>Consulting the council...</span>
@@ -121,17 +145,17 @@ export default function ChatInterface({
         <div ref={messagesEndRef} />
       </div>
 
-      {conversation.messages.length === 0 && (
-        <form className="input-form" onSubmit={handleSubmit}>
-          <textarea
-            className="message-input"
-            placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isLoading}
-            rows={3}
-          />
+      <form className="input-form" onSubmit={handleSubmit}>
+        <textarea
+          className="message-input"
+          placeholder={conversation.messages.length === 0 ? "Ask your question... (Shift+Enter for new line, Enter to send)" : "Continue the conversation... (Shift+Enter for new line, Enter to send)"}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={isLoading}
+          rows={3}
+        />
+        <div className="input-controls">
           <button
             type="submit"
             className="send-button"
@@ -139,8 +163,17 @@ export default function ChatInterface({
           >
             Send
           </button>
-        </form>
-      )}
+          <label className="skip-stages-toggle">
+            <input
+              type="checkbox"
+              checked={skipStagesToggle}
+              onChange={(e) => setSkipStagesToggle(e.target.checked)}
+              disabled={isLoading}
+            />
+            <span className="toggle-label">Skip to Chairman</span>
+          </label>
+        </div>
+      </form>
     </div>
   );
 }

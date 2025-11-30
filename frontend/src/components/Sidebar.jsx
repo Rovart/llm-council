@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import './Sidebar.css';
 import ProviderConfig from './ProviderConfig';
+import { api } from '../api';
 
 export default function Sidebar({
   conversations,
@@ -9,7 +10,20 @@ export default function Sidebar({
   onNewConversation,
   provider,
   onProviderChange,
+  onConversationsChange,
 }) {
+  const deleteConversation = async (id) => {
+    try {
+      await api.deleteConversation(id);
+      onConversationsChange(conversations.filter(c => c.id !== id));
+      if (currentConversationId === id) {
+        onSelectConversation(null);
+      }
+    } catch (e) {
+      console.error('Failed to delete conversation', e);
+    }
+  };
+
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -20,26 +34,14 @@ export default function Sidebar({
       </div>
 
       <div className="provider-toggle">
-        <label>
-          <input
-            type="radio"
-            name="provider"
-            value="openrouter"
-            checked={provider === 'openrouter'}
-            onChange={() => onProviderChange('openrouter')}
-          />
-          OpenRouter (paid)
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="provider"
-            value="ollama"
-            checked={provider === 'ollama'}
-            onChange={() => onProviderChange('ollama')}
-          />
-          Ollama (local, free)
-        </label>
+        <select
+          className="provider-select"
+          value={provider || 'openrouter'}
+          onChange={(e) => onProviderChange(e.target.value)}
+        >
+          <option value="openrouter">OpenRouter (paid)</option>
+          <option value="ollama">Ollama (local, free)</option>
+        </select>
       </div>
 
       <div className="conversation-list">
@@ -54,12 +56,15 @@ export default function Sidebar({
               }`}
               onClick={() => onSelectConversation(conv.id)}
             >
-              <div className="conversation-title">
-                {conv.title || 'New Conversation'}
+              <div className="conversation-content">
+                <div className="conversation-title">
+                  {conv.title || 'New Conversation'}
+                </div>
+                <div className="conversation-meta">
+                  {conv.message_count} messages
+                </div>
               </div>
-              <div className="conversation-meta">
-                {conv.message_count} messages
-              </div>
+              <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}>×</button>
             </div>
           ))
         )}

@@ -34,9 +34,17 @@ OLLAMA_USE_CLI = os.getenv("OLLAMA_USE_CLI", "false").lower() in ("1", "true", "
 OLLAMA_CLI_PATH = os.getenv("OLLAMA_CLI_PATH", "ollama")
 
 # Recommended local Ollama models (used in UI to suggest installs)
-RECOMMENDED_OLLAMA_MODELS = [
-    "llama-2-13b",
-    "llama-2-7b",
-    "mistral-7b",
-    "gpt4all",
-]
+# Provide a mapping of popular families to suggested size variants so the
+# UI/backend can pick a variant appropriate for the developer machine.
+RECOMMENDED_OLLAMA_MODELS_MAP = {
+    "llama-2": ["llama-2-7b", "llama-2-13b", "llama-2-70b"],
+    "mistral": ["mistral-7b"],
+    "gpt4all": ["gpt4all-13b"],
+    # newly requested recommendations
+    "gpt-oss": ["gpt-oss-3b", "gpt-oss-7b", "gpt-oss-13b"],
+    "deepseek-r1": ["deepseek-r1-1.5b", "deepseek-r1-7b", "deepseek-r1-14b"],
+    "qwen3": ["qwen3-7b", "qwen3-14b", "qwen3-34b"],
+}
+
+# A flat, stable list of recommended base names for backward compatibility
+RECOMMENDED_OLLAMA_MODELS = list(RECOMMENDED_OLLAMA_MODELS_MAP.keys())

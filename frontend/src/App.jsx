@@ -9,7 +9,21 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [provider, setProvider] = useState('openrouter');
+  const [currentSkipStages, setCurrentSkipStages] = useState(false);
+  const [provider, setProvider] = useState('ollama');
+
+  // On mount, load saved council config and prefer its provider if present
+  useEffect(() => {
+    const loadProvider = async () => {
+      try {
+        const conf = await api.getCouncilConfig();
+        if (conf && conf.provider) setProvider(conf.provider);
+      } catch (e) {
+        // ignore - keep default
+      }
+    };
+    loadProvider();
+  }, []);
 
   // Load conversations on mount
   useEffect(() => {
@@ -49,6 +63,7 @@ function App() {
         ...conversations,
       ]);
       setCurrentConversationId(newConv.id);
+      setCurrentConversation(newConv);
     } catch (error) {
       console.error('Failed to create conversation:', error);
     }
@@ -56,12 +71,16 @@ function App() {
 
   const handleSelectConversation = (id) => {
     setCurrentConversationId(id);
+    if (!id) {
+      setCurrentConversation(null);
+    }
   };
 
-  const handleSendMessage = async (content, provider) => {
+  const handleSendMessage = async (content, provider, skipStages = false) => {
     if (!currentConversationId) return;
 
     setIsLoading(true);
+    setCurrentSkipStages(skipStages);
     try {
       // Optimistically add user message to UI
       const userMessage = { role: 'user', content };
@@ -77,6 +96,7 @@ function App() {
         stage2: null,
         stage3: null,
         metadata: null,
+        skipStages: skipStages, // Track if stages were skipped
         loading: {
           stage1: false,
           stage2: false,
@@ -90,7 +110,7 @@ function App() {
         messages: [...prev.messages, assistantMessage],
       }));
 
-      // Send message with streaming, include selected provider
+      // Send message with streaming, include selected provider and skipStages flag
       await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
@@ -160,17 +180,19 @@ function App() {
             // Stream complete, reload conversations list
             loadConversations();
             setIsLoading(false);
+            setCurrentSkipStages(false);
             break;
 
           case 'error':
             console.error('Stream error:', event.message);
             setIsLoading(false);
+            setCurrentSkipStages(false);
             break;
 
           default:
             console.log('Unknown event type:', eventType);
         }
-      }, provider);
+      }, provider, skipStages);
     } catch (error) {
       console.error('Failed to send message:', error);
       // Remove optimistic messages on error
@@ -179,6 +201,7 @@ function App() {
         messages: prev.messages.slice(0, -2),
       }));
       setIsLoading(false);
+      setCurrentSkipStages(false);
     }
   };
 
@@ -191,11 +214,13 @@ function App() {
         onNewConversation={handleNewConversation}
         provider={provider}
         onProviderChange={setProvider}
+        onConversationsChange={setConversations}
       />
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
+        skipStages={currentSkipStages}
         provider={provider}
       />
     </div>

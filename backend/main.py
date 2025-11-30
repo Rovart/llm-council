@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
+from datetime import datetime
 import uuid
 import json
 import asyncio
@@ -15,6 +16,62 @@ from . import ollama
 from . import config_store
 
 app = FastAPI(title="LLM Council API")
+
+
+async def _background_summarize_and_persist(conversation_id: str, num_to_summarize: int, chair: str | None, provider: str | None):
+    """Background task: summarize the oldest `num_to_summarize` assistant final answers and persist summary.
+
+    This function is intentionally best-effort; failures are logged but do not raise.
+    """
+    try:
+        from .llm_client import query_model as llm_query
+        convo = storage.get_conversation(conversation_id)
+        if not convo or not convo.get('messages'):
+            return
+
+        # Collect the assistant final answers in order
+        finals = [m.get('stage3', {}).get('response') for m in convo.get('messages', []) if m.get('role') == 'assistant' and isinstance(m.get('stage3'), dict) and m.get('stage3', {}).get('response')]
+        if not finals or num_to_summarize <= 0 or num_to_summarize > len(finals):
+            return
+
+        to_summarize = finals[:num_to_summarize]
+        # Build prompt
+        summary_prompt = 'Summarize the following previous final answers into a concise paragraph (one paragraph, keep it short):\n\n'
+        for i, p in enumerate(to_summarize, start=1):
+            summary_prompt += f"Answer {i}: {p}\n\n"
+
+        if not chair:
+            return
+
+        resp = await llm_query(chair, [{"role": "user", "content": summary_prompt}], provider=provider)
+        if resp is None:
+            return
+        summary_text = resp.get('content', '').strip()
+        if not summary_text:
+            return
+
+        # Persist: append a summary assistant message but do NOT remove original messages
+        convo = storage.get_conversation(conversation_id)
+        if not convo or not convo.get('messages'):
+            return
+        summary_msg = {
+            'role': 'assistant',
+            'stage1': [],
+            'stage2': [],
+            'stage3': {
+                'model': chair,
+                'response': summary_text,
+                'metadata': {
+                    'summarized_count': num_to_summarize,
+                    'chairman_model': chair,
+                    'summary_generated_at': datetime.utcnow().isoformat()
+                }
+            }
+        }
+        convo['messages'].append(summary_msg)
+        storage.save_conversation(convo)
+    except Exception as e:
+        print(f"[BACKGROUND_SUMMARY] failed: {e}")
 
 # Enable CORS for local development
 app.add_middleware(
@@ -28,6 +85,44 @@ app.add_middleware(
 
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
+
+@app.get('/api/ollama/status')
+async def ollama_status():
+    """Return a small diagnostic about Ollama connectivity and the detected API URL."""
+    try:
+        url = ollama.get_detected_api_url()
+    except Exception:
+        url = None
+    # Check reachability — try multiple endpoints
+    reachable = False
+    resolved_endpoint = None
+    if url:
+        try:
+            import httpx
+            candidates = [
+                url.rstrip('/'),
+                url.rstrip('/') + '/api/models',
+                url.rstrip('/') + '/models',
+                url.rstrip('/') + '/v1/models',
+            ]
+            for c in candidates:
+                try:
+                    r = httpx.get(c, timeout=2.0)
+                    if r.status_code == 200:
+                        reachable = True
+                        resolved_endpoint = c
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            reachable = False
+
+    return {
+        'detected_url': url,
+        'resolved_endpoint': resolved_endpoint,
+        'reachable': reachable,
+        'use_cli': ollama.OLLAMA_USE_CLI,
+    }
     pass
 
 
@@ -36,6 +131,8 @@ class SendMessageRequest(BaseModel):
     content: str
     # Optional provider: 'openrouter' (default) or 'ollama'
     provider: str | None = None
+    # Optional flag to skip stages 1 and 2 and chat directly with the Chairman
+    skip_stages: bool = False
 
 
 class ConversationMetadata(BaseModel):
@@ -63,7 +160,12 @@ async def root():
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
 async def list_conversations():
     """List all conversations (metadata only)."""
-    return storage.list_conversations()
+    try:
+        return storage.list_conversations()
+    except Exception as e:
+        # Defensive: avoid 500 if storage has malformed files; return empty list
+        print(f"Error listing conversations: {e}")
+        return []
 
 
 @app.post("/api/conversations", response_model=Conversation)
@@ -83,6 +185,13 @@ async def get_conversation(conversation_id: str):
     return conversation
 
 
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    """Delete a conversation."""
+    storage.delete_conversation(conversation_id)
+    return {"status": "ok"}
+
+
 @app.get("/api/available-models")
 async def available_models(provider: str = "ollama"):
     """Return a list of available models for the selected provider.
@@ -97,14 +206,118 @@ async def available_models(provider: str = "ollama"):
     from .config import COUNCIL_MODELS
     return {"provider": "openrouter", "models": COUNCIL_MODELS}
 
+@app.get('/api/ollama/registry')
+async def ollama_registry(query: str):
+    """Return remote registry model names for a family or query string."""
+    res = await ollama.search_registry(query)
+    return {"query": query, "models": res}
+
 
 @app.get('/api/council-config')
 async def get_council_config():
     conf = config_store.get_config()
-    # Add recommended list to payload
-    from .config import RECOMMENDED_OLLAMA_MODELS
+    # Add recommended list to payload, picking size variants based on machine specs
+    from .config import RECOMMENDED_OLLAMA_MODELS_MAP
+
+    async def _machine_specs():
+        # Try to gather RAM (bytes) and CPU count; best-effort (psutil if available)
+        import os
+        specs = {'cpus': os.cpu_count() or 1, 'ram_bytes': None}
+        try:
+            import psutil
+            specs['cpus'] = psutil.cpu_count(logical=False) or specs['cpus']
+            specs['ram_bytes'] = psutil.virtual_memory().total
+        except Exception:
+            try:
+                # Fallback for POSIX: use sysconf
+                if hasattr(os, 'sysconf'):
+                    pages = os.sysconf('SC_PHYS_PAGES')
+                    page_size = os.sysconf('SC_PAGE_SIZE')
+                    specs['ram_bytes'] = pages * page_size
+            except Exception:
+                specs['ram_bytes'] = None
+        return specs
+
+    def _pick_variant(variants, specs):
+        # Simple heuristic: choose small/medium/large based on RAM
+        ram = specs.get('ram_bytes') or 0
+        # thresholds in bytes: 24GB (small), 48GB (medium), 96GB (large)
+        if ram >= 96 * 1024 ** 3:
+            preferred = list(reversed(variants))  # prefer largest
+        elif ram >= 48 * 1024 ** 3:
+            preferred = variants[-2:] + variants[:1]
+        else:
+            preferred = variants[:2]
+
+        # Return first variant that is in preferred order (may not be installed)
+        return preferred[0] if preferred else (variants[0] if variants else None)
+
+    specs = await _machine_specs()
+    # Build a prioritized recommended list of concrete model names
+    recommended = []
+    for family, variants in RECOMMENDED_OLLAMA_MODELS_MAP.items():
+        chosen = _pick_variant(variants, specs)
+        if chosen:
+            recommended.append(chosen)
+
+    # Query installed models from Ollama to pick accurate names when available
+    try:
+        installed = await ollama.list_models()
+    except Exception:
+        installed = []
+
+    recommended_objs = []
+    installed_lc = [m.lower() for m in installed]
+    def gen_candidate_names(family, variants):
+        candidates = []
+        # variants are full model names
+        candidates.extend(variants)
+        # add family itself and family:latest if not already
+        if family not in candidates:
+            candidates.append(family)
+        latest = f"{family}:latest"
+        if latest not in candidates:
+            candidates.append(latest)
+        # dedupe preserving order
+        seen = []
+        out = []
+        for c in candidates:
+            if c not in seen:
+                seen.append(c)
+                out.append(c)
+        return out
+
+    for family, variants in RECOMMENDED_OLLAMA_MODELS_MAP.items():
+        chosen = _pick_variant(variants, specs)
+        candidates_for_family = gen_candidate_names(family, variants)
+
+        # Try to find an installed variant that matches family or variant token
+        found = None
+        for cand in installed:
+            low = cand.lower()
+            if chosen and chosen.lower() in low:
+                found = cand
+                break
+            if family.lower() in low:
+                found = cand
+                break
+            for v in variants:
+                if v.lower() in low:
+                    found = cand
+                    break
+            if found:
+                break
+
+        if found:
+            recommended_objs.append({'family': family, 'installed': True, 'name': found, 'candidates': [found] + [c for c in candidates_for_family if c != found]})
+        else:
+            suggested_name = chosen or (variants[0] if variants else family)
+            recommended_objs.append({'family': family, 'installed': False, 'name': suggested_name, 'candidates': candidates_for_family})
+
     out = dict(conf)
-    out['recommended_ollama_models'] = RECOMMENDED_OLLAMA_MODELS
+    out['recommended_ollama_models'] = recommended_objs
+    out['machine_specs'] = {'cpus': specs.get('cpus'), 'ram_bytes': specs.get('ram_bytes')}
+    out['installed_models'] = installed
     return out
 
 
@@ -136,6 +349,82 @@ async def ollama_install(body: Dict[str, Any]):
     return result
 
 
+@app.post('/api/ollama/install/stream')
+async def ollama_install_stream(body: Dict[str, Any]):
+    """Stream `ollama pull` output as Server-Sent Events (SSE).
+
+    Clients should POST JSON {model: 'name'} and will receive SSE events
+    of the form: data: {type: 'install_log', line: '...'} and a final
+    {type:'install_complete', success: bool, output: '...'}
+    """
+    model = body.get('model')
+    if not model:
+        raise HTTPException(status_code=400, detail='model required')
+
+    async def event_gen():
+        try:
+            async for ev in ollama.install_model_stream(model):
+                # map local event types to SSE payloads with structured per-attempt info
+                t = ev.get('type')
+                if t == 'attempt_start':
+                    payload = {'type': 'install_attempt_start', 'candidate': ev.get('candidate')}
+                    yield f"data: {json.dumps(payload)}\n\n"
+                elif t == 'attempt_log':
+                    payload = {'type': 'install_attempt_log', 'candidate': ev.get('candidate'), 'line': ev.get('line')}
+                    yield f"data: {json.dumps(payload)}\n\n"
+                elif t == 'attempt_complete':
+                    payload = {
+                        'type': 'install_attempt_complete',
+                        'candidate': ev.get('candidate'),
+                        'success': ev.get('success'),
+                        'output': ev.get('output'),
+                        'returncode': ev.get('returncode')
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
+                elif t == 'complete':
+                    payload = {'type': 'install_complete', 'success': ev.get('success'), 'output': ev.get('output')}
+                    # include attempted candidate or attempts list if present
+                    if ev.get('attempted'):
+                        payload['attempted'] = ev.get('attempted')
+                    if ev.get('attempts'):
+                        payload['attempts'] = ev.get('attempts')
+                    yield f"data: {json.dumps(payload)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+@app.post('/api/ollama/uninstall')
+async def ollama_uninstall(body: Dict[str, Any]):
+    model = body.get('model')
+    if not model:
+        raise HTTPException(status_code=400, detail='model required')
+    result = await ollama.uninstall_model(model)
+    return result
+
+
+@app.post('/api/ollama/uninstall/stream')
+async def ollama_uninstall_stream(body: Dict[str, Any]):
+    model = body.get('model')
+    if not model:
+        raise HTTPException(status_code=400, detail='model required')
+
+    async def event_gen():
+        try:
+            async for ev in ollama.uninstall_model_stream(model):
+                if ev.get('type') == 'line':
+                    payload = {'type': 'uninstall_log', 'line': ev.get('line')}
+                    yield f"data: {json.dumps(payload)}\n\n"
+                elif ev.get('type') == 'complete':
+                    payload = {'type': 'uninstall_complete', 'success': ev.get('success'), 'output': ev.get('output')}
+                    yield f"data: {json.dumps(payload)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(event_gen(), media_type='text/event-stream')
+
+
 @app.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest):
     """
@@ -158,10 +447,79 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         title = await generate_conversation_title(request.content, provider=request.provider)
         storage.update_conversation_title(conversation_id, title)
 
-    # Run the 3-stage council process
+    # Compute prior assistant final answers (chronological). We'll use up to 10 previous.
+    prior_list = []
+    try:
+        convo = storage.get_conversation(conversation_id)
+        if convo and convo.get('messages'):
+            for m in convo.get('messages', []):
+                if m.get('role') == 'assistant' and isinstance(m.get('stage3'), dict):
+                    resp = m.get('stage3', {}).get('response')
+                    if resp:
+                        prior_list.append(resp)
+    except Exception:
+        prior_list = []
+
+    # If we have more than 10 prior finals, ask the chairman to summarize the older ones,
+    # then remove the summarized originals and insert the summary as an assistant final.
+    prior_context = None
+    did_sync_summary = False
+    if len(prior_list) == 0:
+        prior_context = None
+    elif len(prior_list) <= 10:
+        # use last up to 10
+        prior_context = '\n\n'.join(prior_list[-10:])
+    else:
+        # summarize the older ones (all except the last 10)
+        to_summarize = prior_list[:-10]
+        remaining = prior_list[-10:]
+        # Build summarization prompt
+        summary_prompt = 'Summarize the following previous final answers into a concise paragraph (one paragraph, keep it short):\n\n'
+        for i, p in enumerate(to_summarize, start=1):
+            summary_prompt += f"Answer {i}: {p}\n\n"
+
+        # Choose chairman model
+        try:
+            from .config_store import get_chairman_model
+            from .config import CHAIRMAN_MODEL
+            chair = get_chairman_model() or CHAIRMAN_MODEL
+        except Exception:
+            chair = None
+
+        summary_text = None
+        try:
+            if chair:
+                # Use llm_client to call the chairman for summarization
+                from .llm_client import query_model as llm_query
+                resp = await llm_query(chair, [{"role": "user", "content": summary_prompt}], provider=request.provider)
+                if resp is not None:
+                    summary_text = resp.get('content', '').strip()
+        except Exception:
+            summary_text = None
+
+        if summary_text:
+            # Persist the summary as an assistant final message but keep originals
+            try:
+                convo = storage.get_conversation(conversation_id)
+                if convo and convo.get('messages'):
+                    summary_msg = {'role': 'assistant', 'stage1': [], 'stage2': [], 'stage3': {'model': chair, 'response': summary_text, 'metadata': {'summarized_count': len(to_summarize), 'chairman_model': chair, 'summary_generated_at': datetime.utcnow().isoformat()}}}
+                    convo['messages'].append(summary_msg)
+                    storage.save_conversation(convo)
+                    prior_context = summary_text + '\n\n' + '\n\n'.join(remaining)
+                    did_sync_summary = True
+                else:
+                    prior_context = '\n\n'.join(remaining)
+            except Exception:
+                prior_context = '\n\n'.join(remaining)
+        else:
+            # summarization failed; fall back to using last 10
+            prior_context = '\n\n'.join(remaining)
+
+    # Run the 3-stage council process with prior_context
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
         request.content,
-        provider=request.provider
+        provider=request.provider,
+        prior_context=prior_context,
     )
 
     # Add assistant message with all stages
@@ -205,21 +563,130 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(request.content, provider=request.provider))
 
-            # Stage 1: Collect responses
-            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-            stage1_results = await stage1_collect_responses(request.content, provider=request.provider)
-            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+            # Compute prior assistant final answers (chronological). We'll use up to 10 previous.
+            prior_list = []
+            did_sync_summary = False
+            try:
+                convo = storage.get_conversation(conversation_id)
+                if convo and convo.get('messages'):
+                    for m in convo.get('messages', []):
+                        if m.get('role') == 'assistant' and isinstance(m.get('stage3'), dict):
+                            resp = m.get('stage3', {}).get('response')
+                            if resp:
+                                prior_list.append(resp)
+            except Exception:
+                prior_list = []
 
-            # Stage 2: Collect rankings
-            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results, provider=request.provider)
-            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            # If we have more than 10 prior finals, ask the chairman to summarize the older ones,
+            # then remove the summarized originals and insert the summary as an assistant final.
+            prior_context = None
+            if len(prior_list) == 0:
+                prior_context = None
+            elif len(prior_list) <= 10:
+                prior_context = '\n\n'.join(prior_list[-10:])
+            else:
+                to_summarize = prior_list[:-10]
+                remaining = prior_list[-10:]
+                summary_prompt = 'Summarize the following previous final answers into a concise paragraph (one paragraph, keep it short):\n\n'
+                for i, p in enumerate(to_summarize, start=1):
+                    summary_prompt += f"Answer {i}: {p}\n\n"
+                try:
+                    from .config_store import get_chairman_model
+                    from .config import CHAIRMAN_MODEL
+                    chair = get_chairman_model() or CHAIRMAN_MODEL
+                except Exception:
+                    chair = None
+                summary_text = None
+                try:
+                    if chair:
+                        from .llm_client import query_model as llm_query
+                        resp = await llm_query(chair, [{"role": "user", "content": summary_prompt}], provider=request.provider)
+                        if resp is not None:
+                            summary_text = resp.get('content', '').strip()
+                except Exception:
+                    summary_text = None
 
-            # Stage 3: Synthesize final answer
-            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results, provider=request.provider)
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+                if summary_text:
+                        try:
+                            convo = storage.get_conversation(conversation_id)
+                            if convo and convo.get('messages'):
+                                summary_msg = {'role': 'assistant', 'stage1': [], 'stage2': [], 'stage3': {'model': chair, 'response': summary_text, 'metadata': {'summarized_count': len(to_summarize), 'chairman_model': chair, 'summary_generated_at': datetime.utcnow().isoformat()}}}
+                                convo['messages'].append(summary_msg)
+                                storage.save_conversation(convo)
+                                prior_context = summary_text + '\n\n' + '\n\n'.join(remaining)
+                                did_sync_summary = True
+                            else:
+                                prior_context = '\n\n'.join(remaining)
+                        except Exception:
+                            prior_context = '\n\n'.join(remaining)
+                else:
+                    prior_context = '\n\n'.join(remaining)
+
+            # Prepare combined query - prioritize user's message
+            if prior_context:
+                combined_query = request.content + "\n\nFor context, here are previous responses:\n" + prior_context
+            else:
+                combined_query = request.content
+
+            # Check if we should skip stages 1 and 2
+            if request.skip_stages:
+                # Skip directly to Chairman - simple direct query without council synthesis role
+                stage1_results = []
+                stage2_results = []
+                label_to_model = {}
+                aggregate_rankings = []
+                
+                # Direct Chairman response (no stage indicators)
+                yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+                
+                # Get chairman model
+                from .config_store import get_chairman_model
+                from .config import CHAIRMAN_MODEL
+                chairman = get_chairman_model() or CHAIRMAN_MODEL
+                
+                # For Ollama provider, ensure chairman is installed
+                if request.provider and request.provider.lower() in ('ollama', 'local'):
+                    from . import ollama
+                    installed = await ollama.list_models()
+                    if chairman not in installed and installed:
+                        chairman = installed[0]
+                
+                # Simple direct query - just answer the user's question
+                messages = [{"role": "user", "content": combined_query}]
+                
+                from .llm_client import query_model
+                response = await query_model(chairman, messages, provider=request.provider)
+                
+                if response is None:
+                    stage3_result = {
+                        "model": chairman,
+                        "response": "Error: Unable to generate response."
+                    }
+                else:
+                    stage3_result = {
+                        "model": chairman,
+                        "response": response.get('content', '')
+                    }
+                
+                yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            else:
+                # Normal 3-stage process
+                # Stage 1: Collect responses (include prior_context as extra context if present)
+                yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+                stage1_results = await stage1_collect_responses(request.content, provider=request.provider, prior_context=prior_context)
+                yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+
+                # Stage 2: Collect rankings
+                yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+                stage2_results, label_to_model = await stage2_collect_rankings(combined_query, stage1_results, provider=request.provider)
+                aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+                yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+
+                # Stage 3: Synthesize final answer
+                yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+                # For stage3 synthesis, include prior_context in the chairman prompt context if present
+                stage3_result = await stage3_synthesize_final(combined_query, stage1_results, stage2_results, provider=request.provider)
+                yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started
             if title_task:
@@ -234,6 +701,26 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 stage2_results,
                 stage3_result
             )
+
+            # Schedule background summarization if we did not already summarize synchronously
+            try:
+                if not did_sync_summary:
+                    convo = storage.get_conversation(conversation_id)
+                    if convo and convo.get('messages'):
+                        finals = [m for m in convo.get('messages', []) if m.get('role') == 'assistant' and isinstance(m.get('stage3'), dict) and m.get('stage3', {}).get('response')]
+                        count = len(finals)
+                        if count > 10:
+                            num_to_summarize = count - 10
+                            try:
+                                from .config_store import get_chairman_model
+                                from .config import CHAIRMAN_MODEL
+                                chair = get_chairman_model() or CHAIRMAN_MODEL
+                            except Exception:
+                                chair = None
+                            if chair:
+                                asyncio.create_task(_background_summarize_and_persist(conversation_id, num_to_summarize, chair, request.provider))
+            except Exception:
+                pass
 
             # Send completion event
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"

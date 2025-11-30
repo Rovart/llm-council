@@ -16,9 +16,9 @@ async def stage1_collect_responses(user_query: str, provider: str | None = None,
     Returns:
         List of dicts with 'model' and 'response' keys
     """
-    # If prior context (previous final answer) is provided, prepend it to the prompt
+    # Prioritize user's new message - put it first, then context as supplementary
     if prior_context:
-        combined = prior_context + "\n\n" + user_query
+        combined = user_query + "\n\nFor context, here are previous responses:\n" + prior_context
     else:
         combined = user_query
     messages = [{"role": "user", "content": combined}]
@@ -37,7 +37,14 @@ async def stage1_collect_responses(user_query: str, provider: str | None = None,
     if provider and provider.lower() in ('ollama', 'local'):
         from . import ollama
         installed = await ollama.list_models()
-        council_models = [m for m in council_models if m in installed]
+        
+        def is_available(m):
+            if m in installed: return True
+            if f"{m}:latest" in installed: return True
+            if m.endswith(":latest") and m[:-7] in installed: return True
+            return False
+            
+        council_models = [m for m in council_models if is_available(m)]
     responses = await query_models_parallel(council_models, messages, provider=provider)
 
     # Format results
@@ -139,7 +146,14 @@ Now provide your evaluation and ranking:"""
     if provider and provider.lower() in ('ollama', 'local'):
         from . import ollama
         installed = await ollama.list_models()
-        council_models = [m for m in council_models if m in installed]
+        
+        def is_available(m):
+            if m in installed: return True
+            if f"{m}:latest" in installed: return True
+            if m.endswith(":latest") and m[:-7] in installed: return True
+            return False
+            
+        council_models = [m for m in council_models if is_available(m)]
     responses = await query_models_parallel(council_models, messages, provider=provider)
 
     # Format results
@@ -188,10 +202,6 @@ async def stage3_synthesize_final(
 
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
 
-IMPORTANT: At the very start of your response include a one-line acknowledgement that you are the Chairman. For example:
-"CHAIRMAN ACKNOWLEDGEMENT: I am the Chairman of this council."
-Only after that acknowledgement, proceed to synthesize and produce the final answer.
-
 Original Question: {user_query}
 
 STAGE 1 - Individual Responses:
@@ -205,7 +215,7 @@ Your task as Chairman is to synthesize all of this information into a single, co
 - The peer rankings and what they reveal about response quality
 - Any patterns of agreement or disagreement
 
-Provide a clear, well-reasoned final answer that represents the council's collective wisdom. Start your response with the required acknowledgement line exactly as instructed above."""
+Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
