@@ -1,4 +1,4 @@
-# LLM Council
+# LLM Council - Ollama ready
 
 ![llmcouncil](header.jpg)
 
