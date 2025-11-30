@@ -49,7 +49,11 @@ async def stage1_collect_responses(
     # Streaming mode: delegate to llm_client.query_models_parallel_stream
     if stream:
         from .llm_client import query_models_parallel_stream
-        return await query_models_parallel_stream(council_members, messages, provider=provider)
+        # query_models_parallel_stream is an async generator function; return
+        # the async generator object without awaiting it (awaiting an
+        # async-generator raises "object async_generator can't be used in
+        # 'await' expression"). The caller should iterate with `async for`.
+        return query_models_parallel_stream(council_members, messages, provider=provider)
 
     # Non-streaming: query all models in parallel and return formatted results
     from .llm_client import query_models_parallel
