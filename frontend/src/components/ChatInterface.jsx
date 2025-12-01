@@ -18,6 +18,8 @@ export default function ChatInterface({
   const [editingIndex, setEditingIndex] = useState(null);
   const [spinningIndex, setSpinningIndex] = useState(null);
   const [skipStagesToggle, setSkipStagesToggle] = useState(false);
+  // Track which message indices have their stages expanded (collapsed by default when complete)
+  const [expandedStages, setExpandedStages] = useState({});
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -163,8 +165,29 @@ export default function ChatInterface({
                     </div>
                   )}
 
-                  {/* Only show stage details if not skipping */}
-                  {!msg.skipStages && (
+                  {/* Show stages toggle when stage3 is complete and not skipping */}
+                  {!msg.skipStages && msg.stage3?.response && (msg.stage1 || msg.stage2) && (
+                    <button
+                      className="stages-toggle"
+                      onClick={() => setExpandedStages(prev => ({ ...prev, [index]: !prev[index] }))}
+                    >
+                      <svg
+                        className={`toggle-chevron ${expandedStages[index] ? 'expanded' : ''}`}
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                      {expandedStages[index] ? 'Hide deliberation stages' : 'Show deliberation stages'}
+                    </button>
+                  )}
+
+                  {/* Only show stage details if not skipping AND (expanded OR still loading) */}
+                  {!msg.skipStages && (expandedStages[index] || !msg.stage3?.response || msg.loading?.stage1 || msg.loading?.stage2 || msg.loading?.stage3) && (
                     <>
                       {/* Stage 1 */}
                       {msg.loading?.stage1 && (

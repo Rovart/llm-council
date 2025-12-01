@@ -369,3 +369,33 @@
 .skip-stages-toggle:has(input:disabled) .toggle-label {
   opacity: 0.5;
 }
+
+/* Stages toggle button */
+.stages-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  background: rgba(107, 39, 55, 0.06);
+  border: 1px solid rgba(107, 39, 55, 0.15);
+  border-radius: 6px;
+  color: var(--chamber-burgundy);
+  font-size: 13px;
+  font-family: 'Crimson Pro', serif;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stages-toggle:hover {
+  background: rgba(107, 39, 55, 0.12);
+  border-color: rgba(107, 39, 55, 0.25);
+}
+
+.toggle-chevron {
+  transition: transform 0.2s ease;
+}
+
+.toggle-chevron.expanded {
+  transform: rotate(180deg);
+}
