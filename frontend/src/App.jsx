@@ -64,18 +64,35 @@ function App() {
       const msgs = conv.messages || [];
       if (msgs.length > 0) {
         const lastMsg = msgs[msgs.length - 1];
-        // If last message is user with pending status, mark as failed
-        if (lastMsg.role === 'user' && lastMsg.status === 'pending') {
+        
+        // If last message is assistant with complete stage3, ensure preceding user is marked complete
+        if (lastMsg.role === 'assistant' && lastMsg.stage3?.response) {
+          // Find the preceding user message and mark it complete if it's pending/failed
+          for (let i = msgs.length - 2; i >= 0; i--) {
+            if (msgs[i].role === 'user') {
+              if (msgs[i].status === 'pending' || msgs[i].status === 'failed') {
+                msgs[i].status = 'complete';
+                try {
+                  await api.markUserMessageStatus(id, 'complete');
+                } catch (e) {
+                  console.warn('Failed to mark message as complete on backend', e);
+                }
+              }
+              break;
+            }
+          }
+        }
+        // If last message is user with pending status and no assistant response follows, mark as failed
+        else if (lastMsg.role === 'user' && lastMsg.status === 'pending') {
           lastMsg.status = 'failed';
-          // Also update on backend
           try {
             await api.markUserMessageStatus(id, 'failed');
           } catch (e) {
             console.warn('Failed to mark message as failed on backend', e);
           }
         }
-        // If last message is assistant but incomplete (missing stage3 content), mark preceding user as failed
-        if (lastMsg.role === 'assistant' && (!lastMsg.stage3 || !lastMsg.stage3.content)) {
+        // If last message is assistant but incomplete (missing stage3.response), mark preceding user as failed
+        else if (lastMsg.role === 'assistant' && (!lastMsg.stage3 || !lastMsg.stage3.response)) {
           // Remove incomplete assistant message and mark user as failed
           msgs.pop();
           const userMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
