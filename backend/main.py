@@ -14,11 +14,7 @@ from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
 from . import ollama
 from . import config_store
-
-# How many recent assistant final answers to include directly in the prompt
-IMMEDIATE_CONTEXT_KEEP = 3
-# How many assistant final answers to retain before background summarization
-SUMMARY_RETENTION = 3
+from .config import IMMEDIATE_CONTEXT_KEEP, SUMMARY_RETENTION
 
 app = FastAPI(title="LLM Council API")
 

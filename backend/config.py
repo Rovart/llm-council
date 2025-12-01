@@ -48,3 +48,9 @@ RECOMMENDED_OLLAMA_MODELS_MAP = {
 
 # A flat, stable list of recommended base names for backward compatibility
 RECOMMENDED_OLLAMA_MODELS = list(RECOMMENDED_OLLAMA_MODELS_MAP.keys())
+
+# Context summarization settings
+# How many recent assistant final answers to include directly in the prompt
+IMMEDIATE_CONTEXT_KEEP = 3
+# How many assistant final answers to retain before background summarization
+SUMMARY_RETENTION = 3

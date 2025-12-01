@@ -91,11 +91,12 @@ def list_conversations() -> List[Dict[str, Any]]:
         # If root is a list, assume it's a list of messages and recover
         if isinstance(data, list):
             convo_id = os.path.splitext(filename)[0]
+            user_msg_count = sum(1 for m in data if isinstance(m, dict) and m.get('role') == 'user')
             conversations.append({
                 'id': convo_id,
                 'created_at': datetime.utcnow().isoformat(),
                 'title': 'Recovered Conversation',
-                'message_count': len(data)
+                'message_count': user_msg_count
             })
             continue
 
@@ -107,12 +108,14 @@ def list_conversations() -> List[Dict[str, Any]]:
         created_at = data.get('created_at') or datetime.utcnow().isoformat()
         title = data.get('title', 'New Conversation')
         messages = data.get('messages') if isinstance(data.get('messages'), list) else []
+        # Count only user messages for the sidebar display (excludes summary messages and assistant messages)
+        user_message_count = sum(1 for m in messages if m.get('role') == 'user')
 
         conversations.append({
             'id': convo_id,
             'created_at': created_at,
             'title': title,
-            'message_count': len(messages)
+            'message_count': user_message_count
         })
 
     conversations.sort(key=lambda x: x['created_at'], reverse=True)
