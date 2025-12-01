@@ -11,6 +11,7 @@ export default function Sidebar({
   provider,
   onProviderChange,
   onConversationsChange,
+  activeStreams,
 }) {
   const deleteConversation = async (id) => {
     try {
@@ -48,25 +49,29 @@ export default function Sidebar({
         {conversations.length === 0 ? (
           <div className="no-conversations">No conversations yet</div>
         ) : (
-          conversations.map((conv) => (
-            <div
-              key={conv.id}
-              className={`conversation-item ${
-                conv.id === currentConversationId ? 'active' : ''
-              }`}
-              onClick={() => onSelectConversation(conv.id)}
-            >
-              <div className="conversation-content">
-                <div className="conversation-title">
-                  {conv.title || 'New Conversation'}
+          conversations.map((conv) => {
+            const isStreaming = activeStreams && activeStreams.has(conv.id);
+            return (
+              <div
+                key={conv.id}
+                className={`conversation-item ${
+                  conv.id === currentConversationId ? 'active' : ''
+                } ${isStreaming ? 'streaming' : ''}`}
+                onClick={() => onSelectConversation(conv.id)}
+              >
+                <div className="conversation-content">
+                  <div className="conversation-title">
+                    {isStreaming && <span className="sidebar-spinner"></span>}
+                    {conv.title || 'New Conversation'}
+                  </div>
+                  <div className="conversation-meta">
+                    {conv.message_count} messages
+                  </div>
                 </div>
-                <div className="conversation-meta">
-                  {conv.message_count} messages
-                </div>
+                <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}>×</button>
               </div>
-              <button className="delete-btn" onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}>×</button>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
       <div className="sidebar-footer">

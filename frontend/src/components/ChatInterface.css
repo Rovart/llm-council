@@ -208,6 +208,96 @@
   background: rgba(244, 237, 228, 0.5);
 }
 
+.message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+.message-row .message-content {
+  flex: 1 1 auto;
+}
+
+.user-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  margin-left: 8px;
+}
+
+.user-controls button {
+  border: 1px solid rgba(107,39,55,0.08);
+  background: rgba(255,255,255,0.9);
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-controls button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(107,39,55,0.08);
+}
+
+.user-controls .edit-button {
+  color: #6b2737;
+}
+
+.user-controls .retry-button {
+  color: #2a6f6f;
+}
+
+/* Improved retry icon styling */
+.user-controls .retry-button:focus {
+  outline: none;
+  box-shadow: 0 6px 12px rgba(42,111,111,0.08), 0 0 0 4px rgba(42,111,111,0.08);
+}
+
+.retry-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 120ms ease;
+  transform-origin: 50% 50%;
+}
+
+.user-controls .retry-button:hover .retry-icon {
+  transform: rotate(18deg) scale(1.05);
+}
+
+.user-controls .retry-button:active .retry-icon {
+  transform: rotate(26deg) scale(0.98);
+}
+
+.user-controls .retry-button:focus-visible {
+  box-shadow: 0 0 0 4px rgba(42,111,111,0.12);
+}
+
+/* Spinning state when retry is active */
+.user-controls .retry-button.spinning .retry-icon {
+  animation: spin 0.9s linear infinite;
+}
+
+.user-controls .retry-button.spinning {
+  cursor: progress;
+}
+
+/* Ensure SVGs inherit color and scale nicely */
+.user-controls button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  color: inherit;
+}
+
 .send-button {
   padding: 12px 32px;
   background: var(--chamber-burgundy);

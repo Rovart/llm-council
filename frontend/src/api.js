@@ -107,26 +107,102 @@ export const api = {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let buf = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          try {
-            const event = JSON.parse(data);
-            onEvent(event.type, event);
-          } catch (e) {
-            console.error('Failed to parse SSE event:', e);
+      for (const part of parts) {
+        const lines = part.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            try {
+              const event = JSON.parse(data);
+              onEvent(event.type, event);
+            } catch (e) {
+              console.error('Failed to parse SSE event:', e);
+            }
           }
         }
       }
     }
+  },
+
+  /**
+   * Retry the last pending/failed user message and stream SSE events.
+   * @param {string} conversationId
+   * @param {function} onEvent - (eventType, event) => void
+   * @param {string} provider
+   * @param {boolean} skipStages
+   */
+  async retryPendingStream(conversationId, onEvent, provider = null, skipStages = false) {
+    const body = {};
+    if (provider) body.provider = provider;
+    if (skipStages) body.skip_stages = skipStages;
+
+    const response = await fetch(`${API_BASE}/api/conversations/${conversationId}/pending/retry/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) throw new Error('Failed to start retry stream');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const lines = part.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (onEvent) onEvent(data.type, data);
+            } catch (e) {
+              console.error('Failed to parse retry SSE', e);
+            }
+          }
+        }
+      }
+    }
+  },
+
+  /**
+   * Remove pending user messages for a conversation. Body: {keep_last: true}
+   */
+  async removePendingMessages(conversationId, keepLast = true) {
+    const response = await fetch(`${API_BASE}/api/conversations/${conversationId}/pending/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keep_last: keepLast }),
+    });
+    if (!response.ok) throw new Error('Failed to remove pending messages');
+    return response.json();
+  },
+
+  /**
+   * Mark the last user message status (e.g., 'failed', 'complete')
+   */
+  async markUserMessageStatus(conversationId, status) {
+    const response = await fetch(`${API_BASE}/api/conversations/${conversationId}/user-message/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!response.ok) throw new Error('Failed to mark user message status');
+    return response.json();
   },
 
   async listAvailableModels(provider = 'ollama') {

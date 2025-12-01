@@ -25,15 +25,45 @@ async def stage1_collect_responses(
     if not council_members:
         council_members = COUNCIL_MODELS
 
-    # Build the prompt messages. prior_context may be a string (joined finals)
-    # or a list of message dicts; handle both cases.
+    # Build the prompt messages. To keep prompting consistent with the
+    # Chairman (Stage 3) and Stage 2 behavior we embed previous final
+    # responses into the user's query as an explicit "For context..." block.
+    # prior_context may be a string (joined finals) or a list of message
+    # dicts; handle both cases and prefer producing a single user message
+    # that contains the combined query + context.
     if prior_context:
         if isinstance(prior_context, str):
-            combined = prior_context + "\n\n" + user_query
+            # Place the user's question first, then provide prior responses
+            # as contextual information (matches `combined_query` used
+            # elsewhere in streaming flow).
+            combined = user_query + "\n\nFor context, here are previous responses:\n" + prior_context
             messages = [{"role": "user", "content": combined}]
         else:
-            # assume list of dict messages; append the user query
-            messages = list(prior_context) + [{"role": "user", "content": user_query}]
+            # If prior_context is a list of message dicts, try to extract
+            # textual content and join into a compact context block. Fall
+            # back to appending the user message if extraction fails.
+            try:
+                parts = []
+                for m in prior_context:
+                    if isinstance(m, dict):
+                        # Prefer common fields that may contain final text
+                        text = m.get('content') or (m.get('stage3') or {}).get('response') or ''
+                        if text:
+                            parts.append(text)
+                        else:
+                            # If the message itself has nested structures, stringify
+                            parts.append(str(m))
+                    else:
+                        parts.append(str(m))
+
+                context_str = '\n\n'.join([p for p in parts if p])
+                if context_str:
+                    combined = user_query + "\n\nFor context, here are previous responses:\n" + context_str
+                    messages = [{"role": "user", "content": combined}]
+                else:
+                    messages = list(prior_context) + [{"role": "user", "content": user_query}]
+            except Exception:
+                messages = list(prior_context) + [{"role": "user", "content": user_query}]
     else:
         messages = [{"role": "user", "content": user_query}]
 
@@ -400,15 +430,25 @@ Title:"""
     messages = [{"role": "user", "content": title_prompt}]
 
     # Choose a title-generation model appropriate to the provider.
-    # For Ollama, prefer an installed local model; for OpenRouter, use gemini-2.5-flash.
+    # For Ollama, prefer the configured chairman model (if available),
+    # otherwise fall back to the first installed model. For non-Ollama
+    # providers, use a sensible default.
     title_model = "google/gemini-2.5-flash"
     if provider and str(provider).lower() in ('ollama', 'local'):
         try:
             from . import ollama
             installed = await ollama.list_models()
-            # pick the first installed model if available
-            if installed:
-                title_model = installed[0]
+            # Prefer explicit chairman model when available
+            try:
+                chair = get_chairman_model() or CHAIRMAN_MODEL
+            except Exception:
+                chair = None
+            if chair and installed and chair in installed:
+                title_model = chair
+            else:
+                # pick the first installed model if available
+                if installed:
+                    title_model = installed[0]
         except Exception:
             title_model = "google/gemini-2.5-flash"
 
@@ -440,8 +480,13 @@ async def run_full_council(user_query: str, provider: str | None = None, prior_c
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
     """
-    # Combine prior context and user query if prior_context supplied
-    combined_query = prior_context + "\n\n" + user_query if prior_context else user_query
+    # Combine prior context and user query if prior_context supplied.
+    # Use user-first + explicit context block to match streaming flow and
+    # the Chairman prompt formatting used elsewhere.
+    if prior_context:
+        combined_query = user_query + "\n\nFor context, here are previous responses:\n" + prior_context
+    else:
+        combined_query = user_query
 
     # Stage 1: Collect individual responses (stage1 accepts prior_context as well)
     stage1_results = await stage1_collect_responses(user_query, provider=provider, prior_context=prior_context)

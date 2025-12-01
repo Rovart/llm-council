@@ -194,8 +194,12 @@ async def _call_ollama_http(model: str, prompt: str, timeout: float = 120.0) -> 
             # if data is already a dict (json), we've got it; if data is text, we'll stringify
 
             # Ollama responses vary by version; attempt to extract text sensibly.
-            # Common keys: 'result', 'data', or 'generated'. We'll try a few fallbacks.
+            # Common keys: 'response', 'result', 'data', or 'generated'. We'll try a few fallbacks.
             if isinstance(data, dict):
+                # If there's a top-level 'response' string (standard Ollama API format)
+                if 'response' in data and isinstance(data['response'], str):
+                    return {'content': data['response']}
+                
                 # If there's a top-level 'result' string
                 if 'result' in data and isinstance(data['result'], str):
                     return {'content': data['result']}
@@ -364,18 +368,31 @@ async def _call_ollama_cli(model: str, prompt: str, timeout: float = 120.0) -> O
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 120.0
-) -> Optional[Dict[str, Any]]:
+    timeout: float = 120.0,
+    stream: bool = False
+):
     """Query a model served by Ollama.
 
     The `messages` list is converted into a single prompt string by joining
     role labels and contents. Ollama models commonly accept a plain prompt.
+    
+    Args:
+        model: Model name
+        messages: List of message dicts with 'role' and 'content'
+        timeout: Request timeout in seconds
+        stream: If True, returns an async generator yielding chunks. If False, returns complete response dict.
+    
+    Returns:
+        If stream=False: Dict with 'content' key, or None on error
+        If stream=True: Async generator yielding chunk dicts
     """
     # Convert messages into a single prompt string
     prompt = '\n\n'.join([f"[{m.get('role','user')}] {m.get('content','')}" for m in messages])
 
-    # Prefer HTTP API, but allow CLI fallback if configured
-    # Log the preference used for this call
+    if stream:
+        return _query_model_stream_generator(model, prompt, timeout)
+    
+    # Non-streaming mode - original implementation
     print(f"[OLLAMA] query_model: model={model} use_cli={OLLAMA_USE_CLI}")
     if not OLLAMA_USE_CLI:
         result = await _call_ollama_http(model, prompt, timeout=timeout)
@@ -394,6 +411,75 @@ async def query_model(
         return result
 
     return None
+
+
+async def _query_model_stream_generator(model: str, prompt: str, timeout: float):
+    """Helper generator for streaming Ollama response."""
+    base = (await _discover_api_url()).rstrip('/')
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": True
+    }
+    
+    try:
+        start = time.time()
+        print(f"[OLLAMA][STREAM] start model={model} url_base={base}")
+        
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for endpoint in OLLAMA_GENERATE_ENDPOINTS:
+                url = base + endpoint
+                try:
+                    async with client.stream('POST', url, json=payload) as resp:
+                        if resp.status_code != 200:
+                            continue
+                            
+                        # Stream NDJSON response
+                        async for line in resp.aiter_lines():
+                            if not line.strip():
+                                continue
+                            try:
+                                obj = json.loads(line)
+                                if isinstance(obj, dict):
+                                    # Check if this chunk has response text
+                                    if 'response' in obj and isinstance(obj['response'], str):
+                                        yield {
+                                            'type': 'chunk',
+                                            'content': obj['response'],
+                                            'done': obj.get('done', False)
+                                        }
+                                    # Check if stream is complete
+                                    if obj.get('done', False):
+                                        dur = time.time() - start
+                                        print(f"[OLLAMA][STREAM] complete model={model} duration={dur:.2f}s")
+                                        yield {'type': 'done'}
+                                        return
+                            except json.JSONDecodeError:
+                                continue
+                        
+                        # If we got here, streaming worked
+                        return
+                        
+                except Exception:
+                    # Try next endpoint
+                    continue
+        
+        # If no endpoint worked, fall back to non-streaming
+        print(f"[OLLAMA][STREAM] no streaming endpoint worked, falling back to non-streaming")
+        # We can't call query_model(stream=False) easily here without circular dependency or code duplication
+        # But we can try _call_ollama_http directly
+        result = await _call_ollama_http(model, prompt, timeout=timeout)
+        if result and 'content' in result:
+            yield {'type': 'chunk', 'content': result['content'], 'done': True}
+            yield {'type': 'done'}
+        else:
+            yield {'type': 'error', 'message': 'Failed to get response'}
+            
+    except Exception as e:
+        dur = time.time() - start if 'start' in locals() else 0.0
+        print(f"[OLLAMA][STREAM] error model={model} duration={dur:.2f}s error={e}")
+        yield {'type': 'error', 'message': str(e)}
+
 
 
 async def query_models_parallel(models: List[str], messages: List[Dict[str, str]]) -> Dict[str, Optional[Dict[str, Any]]]:
@@ -463,6 +549,8 @@ async def install_model(model: str, timeout: float = 600) -> Dict[str, Any]:
 
     attempts = await _build_candidates(model)
     attempts_info = []
+    # Accumulate HTTP pull outputs and diagnostics when trying multiple endpoints
+    combined_out = []
     # Try each candidate until one succeeds
     for candidate in attempts:
         # First, try HTTP-based pull if the Ollama HTTP API is available

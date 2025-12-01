@@ -125,9 +125,70 @@ def add_user_message(conversation_id: str, content: str):
         raise ValueError(f"Conversation {conversation_id} not found")
     conversation.setdefault('messages', []).append({
         'role': 'user',
-        'content': content
+        'content': content,
+        'status': 'pending',
+        'created_at': datetime.utcnow().isoformat()
     })
     save_conversation(conversation)
+
+
+def mark_last_user_message_status(conversation_id: str, status: str):
+    """Mark the most recent user message's status."""
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+    msgs = conversation.setdefault('messages', [])
+    for m in reversed(msgs):
+        if m.get('role') == 'user':
+            m['status'] = status
+            m['status_updated_at'] = datetime.utcnow().isoformat()
+            save_conversation(conversation)
+            return True
+    return False
+
+
+def remove_pending_user_messages(conversation_id: str, keep_last: bool = True) -> int:
+    """Remove user messages that are pending or failed. If `keep_last` is True,
+    preserves the most recent pending/failed user message (so UI can offer retry).
+
+    Returns the number of messages removed.
+    """
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+    msgs = conversation.setdefault('messages', [])
+    # Find indices of pending or failed user messages
+    removable_indices = [
+        i for i, m in enumerate(msgs)
+        if m.get('role') == 'user' and m.get('status') in ('pending', 'failed')
+    ]
+    if not removable_indices:
+        return 0
+    # If keep_last, drop the last index from removal
+    if keep_last and len(removable_indices) > 0:
+        removable_indices = removable_indices[:-1]
+    # Remove by index (from end to start to avoid shifting)
+    removed = 0
+    for idx in reversed(removable_indices):
+        try:
+            msgs.pop(idx)
+            removed += 1
+        except Exception:
+            continue
+    if removed:
+        save_conversation(conversation)
+    return removed
+
+
+def get_last_user_message(conversation_id: str) -> dict | None:
+    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        return None
+    msgs = conversation.get('messages', [])
+    for m in reversed(msgs):
+        if m.get('role') == 'user':
+            return m
+    return None
 
 
 def add_assistant_message(
