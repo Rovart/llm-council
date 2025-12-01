@@ -1,8 +1,8 @@
-# LLM Council - Ollama ready
+# LLM Council
 
 ![llmcouncil](header.jpg)
 
-The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, eg.c), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses OpenRouter to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
+The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, etc.), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses OpenRouter (or Ollama locally) to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
 
 In a bit more detail, here is what happens when you submit a query:
 
@@ -10,37 +10,50 @@ In a bit more detail, here is what happens when you submit a query:
 2. **Stage 2: Review**. Each individual LLM is given the responses of the other LLMs. Under the hood, the LLM identities are anonymized so that the LLM can't play favorites when judging their outputs. The LLM is asked to rank them in accuracy and insight.
 3. **Stage 3: Final response**. The designated Chairman of the LLM Council takes all of the model's responses and compiles them into a single final answer that is presented to the user.
 
-## New Features
+## Features
 
-- **Ollama Provider (local)**: You can now use Ollama as a local, free provider alongside the existing OpenRouter option. When `ollama` is selected from the Sidebar provider switch the app will:
-    - Detect installed models via the Ollama HTTP API or CLI.
-    - Show a list of installed models and let you add/remove them from the Council.
-    - Offer recommended model families and specific candidate versions (tags) that you can select and install via the UI.
-    - Stream install/uninstall logs in the modal so you can watch progress and diagnose failures.
+### Dual Provider Support
+- **OpenRouter (cloud, paid)**: Access to many frontier models (GPT-4, Claude, Gemini, Grok, etc.) via the OpenRouter API.
+- **Ollama (local, free)**: Run models locally with zero cost. Seamlessly switch between providers from the sidebar.
 
-- **Model selection & versions**: Recommended model entries expose a family (general name) and specific candidate versions. The UI shows the family name in the model chip while the select lists only the specific candidate versions (no duplicate family name in the dropdown). You can install a different version of an already-installed family.
+### Ollama Integration
+- Auto-detect installed Ollama models via HTTP API or CLI.
+- Browse recommended model families with specific version tags.
+- Install/uninstall models directly from the UI with real-time streaming logs.
+- Add/remove models from the Council and select the Chairman model.
 
-- **Conversation context summarization**: To improve multi-turn continuity, the backend now includes a prior-context summarization flow:
-    - The most recent assistant final answers (up to a 10-message window) are preserved and sent as context.
-    - Older assistant final answers are summarized (synchronously or in the background, depending on size and threshold) and appended as a compact assistant message so the LLMs still get the gist of earlier conversation without exceeding token limits.
-    - Summaries include metadata so the UI can surface them differently (e.g., a short label indicating the content is a summary).
+### Streaming Responses
+- Real-time SSE streaming for all three stages (first opinions, reviews, final response).
+- Progressive UI updates as each model responds.
+- Per-conversation loading state — switch conversations while streaming continues in the background.
+- Sidebar spinner indicator for conversations with active streams.
 
-These changes aim to make local experimentation with models (via Ollama) easier and to keep longer conversations coherent while staying within model context limits.
+### Conversation Management
+- Create, delete, and switch between multiple conversations.
+- Automatic title generation based on conversation content.
+- Persistent storage in JSON files.
 
-## Redesign (UI polish)
+### Context Summarization
+- Preserves recent assistant responses (up to 10-message window) as full context.
+- Automatically summarizes older conversation history to stay within token limits.
+- Summary metadata displayed in UI so users can distinguish compacted prior context.
 
-- The frontend has received a visual refresh focused on clarity and modern, subtle affordances:
-    - Pill-style model chips for recommended models that present the family name consistently.
-    - Matching, aligned selects for candidate versions so chips and dropdowns share height and baseline.
-    - Modernized control buttons (gear, refresh, modal-close) with light backgrounds, subtle shadows and hover elevations.
-    - Destructive actions (Uninstall) use a clear red button style to avoid accidental clicks.
-    - The conversation UI now always shows the input box and surfaces summary messages with metadata so users can distinguish compacted prior context.
+### Error Handling & Recovery
+- Messages interrupted by page reload are automatically marked as failed.
+- Retry failed messages with a single click (retry button).
+- Edit and resubmit failed messages (edit button).
+- Old failed/pending messages are auto-cleaned on new submissions.
 
-These visual changes focus on usability and reducing visual clutter while keeping interactions obvious and accessible.
+### Skip to Chairman Mode
+- Toggle to bypass Stage 1 & 2 and send queries directly to the Chairman model.
+- Useful for quick responses without the full council deliberation.
 
-## Vibe Code Alert
-
-This project was 99% vibe coded as a fun Saturday hack because I wanted to explore and evaluate a number of LLMs side by side in the process of [reading books together with LLMs](https://x.com/karpathy/status/1990577951671509438). It's nice and useful to see multiple responses side by side, and also the cross-opinions of all LLMs on each other's outputs. I'm not going to support it in any way, it's provided here as is for other people's inspiration and I don't intend to improve it. Code is ephemeral now and libraries are over, ask your LLM to change it in whatever way you like.
+### Modern UI
+- Clean, responsive design with a parliament/council aesthetic.
+- Collapsible stage views for first opinions and reviews.
+- Markdown rendering for all responses.
+- Pill-style model chips and aligned dropdowns.
+- Hover effects, subtle shadows, and clear destructive action styling.
 
 ## Setup
 
@@ -109,7 +122,7 @@ Then open http://localhost:5173 in your browser.
 
 ## Provider: OpenRouter vs Ollama (Local)
 
-You can now use either OpenRouter (cloud, paid) or Ollama (local, free) as the LLM provider.
+You can use either OpenRouter (cloud, paid) or Ollama (local, free) as the LLM provider.
 
 - To use Ollama by default, update `.env` and set `USE_OLLAMA=true` and configure `OLLAMA_API_URL` and `OLLAMA_USE_CLI` if you want automatic CLI installs.
 - Start the app as usual with `./start.sh` or `uv run python -m backend.main` and `npm run dev` for the frontend.
