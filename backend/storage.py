@@ -91,10 +91,10 @@ def list_conversations() -> List[Dict[str, Any]]:
         # If root is a list, assume it's a list of messages and recover
         if isinstance(data, list):
             convo_id = os.path.splitext(filename)[0]
-            # Count user messages + assistant messages with completed stage3 (exclude summaries)
+            # Count completed user messages + assistant messages with completed stage3 (exclude summaries)
             msg_count = sum(
                 1 for m in data if isinstance(m, dict) and (
-                    m.get('role') == 'user' or
+                    (m.get('role') == 'user' and m.get('status', 'complete') == 'complete') or
                     (m.get('role') == 'assistant' and isinstance(m.get('stage3'), dict) and
                      m.get('stage3', {}).get('response') and
                      not m.get('stage3', {}).get('metadata', {}).get('summarized_count'))
@@ -116,10 +116,11 @@ def list_conversations() -> List[Dict[str, Any]]:
         created_at = data.get('created_at') or datetime.utcnow().isoformat()
         title = data.get('title', 'New Conversation')
         messages = data.get('messages') if isinstance(data.get('messages'), list) else []
-        # Count user messages + assistant messages with completed stage3 (exclude summaries)
+        # Count completed user messages + assistant messages with completed stage3 (exclude summaries)
+        # A user message is "complete" if status == 'complete' OR if there's no status field (legacy)
         msg_count = sum(
             1 for m in messages if (
-                m.get('role') == 'user' or
+                (m.get('role') == 'user' and m.get('status', 'complete') == 'complete') or
                 (m.get('role') == 'assistant' and isinstance(m.get('stage3'), dict) and
                  m.get('stage3', {}).get('response') and
                  not m.get('stage3', {}).get('metadata', {}).get('summarized_count'))
