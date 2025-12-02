@@ -20,7 +20,10 @@ export default function ChatInterface({
   const [skipStagesToggle, setSkipStagesToggle] = useState(false);
   // Track which message indices have their stages expanded (collapsed by default when complete)
   const [expandedStages, setExpandedStages] = useState({});
+  // Track which message we are replying to (contains the finalResponse object)
+  const [replyingTo, setReplyingTo] = useState(null);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -42,6 +45,23 @@ export default function ChatInterface({
     setSpinningIndex(null);
   }, [conversation?.messages]);
 
+  // Clear replyingTo when conversation changes
+  useEffect(() => {
+    setReplyingTo(null);
+  }, [conversation?.id]);
+
+  const handleReply = (finalResponse) => {
+    setReplyingTo(finalResponse);
+    // Focus the input
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+  };
+
+  const clearReply = () => {
+    setReplyingTo(null);
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -55,8 +75,10 @@ export default function ChatInterface({
       return;
     }
 
-    onSendMessage(input, provider, skipStagesToggle);
+    // Pass replyTo context if replying to a message
+    onSendMessage(input, provider, skipStagesToggle, replyingTo);
     setInput('');
+    setReplyingTo(null);
   };
 
   const handleKeyDown = (e) => {
@@ -230,7 +252,7 @@ export default function ChatInterface({
                       <span>Thinking...</span>
                     </div>
                   )}
-                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} isSkipped={msg.skipStages} />}
+                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} isSkipped={msg.skipStages} onReply={handleReply} />}
                 </div>
                 )}
               </div>
@@ -249,7 +271,33 @@ export default function ChatInterface({
       </div>
 
       <form className="input-form" onSubmit={handleSubmit}>
+        {/* WhatsApp-style reply placeholder */}
+        {replyingTo && (
+          <div className="reply-placeholder">
+            <div className="reply-content">
+              <div className="reply-label">
+                Replying to {replyingTo.model.split('/')[1] || replyingTo.model}
+              </div>
+              <div className="reply-preview">
+                {replyingTo.response.length > 150
+                  ? replyingTo.response.substring(0, 150) + '...'
+                  : replyingTo.response}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="reply-close"
+              onClick={clearReply}
+              aria-label="Cancel reply"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+              </svg>
+            </button>
+          </div>
+        )}
         <textarea
+          ref={inputRef}
           className="message-input"
           placeholder={conversation.messages.length === 0 ? "Ask your question... (Shift+Enter for new line, Enter to send)" : "Continue the conversation... (Shift+Enter for new line, Enter to send)"}
           value={input}

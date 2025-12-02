@@ -134,6 +134,8 @@ class SendMessageRequest(BaseModel):
     provider: str | None = None
     # Optional flag to skip stages 1 and 2 and chat directly with the Chairman
     skip_stages: bool = False
+    # Optional: the response text we are replying to (gets priority in context)
+    reply_to_response: str | None = None
 
 
 class ConversationMetadata(BaseModel):
@@ -1064,8 +1066,13 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 else:
                     prior_context = '\n\n'.join(remaining)
 
-            # Prepare combined query - prioritize user's message
-            if prior_context:
+            # Prepare combined query - prioritize reply_to_response, then user's message, then context
+            if request.reply_to_response:
+                # When replying to a specific message, give it highest priority
+                combined_query = f"The user is replying to this previous response:\n\n\"{request.reply_to_response}\"\n\nUser's reply: {request.content}"
+                if prior_context:
+                    combined_query += "\n\nAdditional context from earlier in the conversation:\n" + prior_context
+            elif prior_context:
                 combined_query = request.content + "\n\nFor context, here are previous responses:\n" + prior_context
             else:
                 combined_query = request.content
@@ -1140,8 +1147,12 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 
                 stage1_results = []
                 # Use streaming for Stage 1
+                # When replying to a specific message, use combined_query which includes the reply context
+                # Otherwise use the original content with prior_context
+                stage1_query = combined_query if request.reply_to_response else request.content
+                stage1_context = None if request.reply_to_response else prior_context
                 # Note: stage1_collect_responses is async, so we await it to get the generator
-                generator = await stage1_collect_responses(request.content, provider=request.provider, prior_context=prior_context, stream=True)
+                generator = await stage1_collect_responses(stage1_query, provider=request.provider, prior_context=stage1_context, stream=True)
                 
                 # We need to aggregate results for Stage 2
                 model_responses = {} # model -> accumulated text

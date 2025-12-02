@@ -159,7 +159,7 @@ function App() {
     }
   };
 
-  const handleSendMessage = async (content, provider, skipStages = false) => {
+  const handleSendMessage = async (content, provider, skipStages = false, replyTo = null) => {
     if (!currentConversationId) return;
 
     const targetConversationId = currentConversationId;
@@ -206,6 +206,9 @@ function App() {
 
       // Mark this conversation as having an active stream
       activeStreamsRef.current.add(targetConversationId);
+
+      // Prepare replyToResponse if replying to a specific message
+      const replyToResponse = replyTo ? replyTo.response : null;
 
       // Send message with streaming, include selected provider and skipStages flag
       await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
@@ -456,7 +459,7 @@ function App() {
           default:
             console.log('Unknown event type:', eventType);
         }
-      }, provider, skipStages);
+      }, provider, skipStages, replyToResponse);
     } catch (error) {
       console.error('Failed to send message:', error);
       // Remove optimistic messages on error

@@ -17,10 +17,17 @@
 }
 
 /* Export PDF button - top right */
-.export-pdf-button {
+.stage3-actions {
   position: absolute;
   top: 16px;
   right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+}
+
+.export-pdf-button,
+.reply-button {
   background: transparent;
   border: 1px solid rgba(107, 39, 55, 0.2);
   border-radius: 4px;
@@ -32,15 +39,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
 }
 
-.export-pdf-button:hover {
+.export-pdf-button:hover,
+.reply-button:hover {
   opacity: 1;
   background: rgba(107, 39, 55, 0.05);
 }
 
-.export-pdf-button:active {
+.export-pdf-button:active,
+.reply-button:active {
   transform: scale(0.95);
 }
 

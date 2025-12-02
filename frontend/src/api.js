@@ -83,12 +83,14 @@ export const api = {
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @param {string} provider - Optional provider ('ollama' or 'openrouter')
    * @param {boolean} skipStages - Optional flag to skip stages 1 and 2
+   * @param {string} replyToResponse - Optional response text we are replying to (gets priority in context)
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, onEvent, provider = null, skipStages = false) {
+  async sendMessageStream(conversationId, content, onEvent, provider = null, skipStages = false, replyToResponse = null) {
     const body = { content };
     if (provider) body.provider = provider;
     if (skipStages) body.skip_stages = skipStages;
+    if (replyToResponse) body.reply_to_response = replyToResponse;
 
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
