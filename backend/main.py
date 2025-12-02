@@ -576,7 +576,8 @@ async def retry_last_pending_stream(conversation_id: str, body: Dict[str, Any]):
                 conversation_id,
                 stage1_results,
                 stage2_results,
-                stage3_result
+                stage3_result,
+                skip_stages=skip_stages
             )
 
             # Mark last user message as complete
@@ -1268,7 +1269,8 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 conversation_id,
                 stage1_results,
                 stage2_results,
-                stage3_result
+                stage3_result,
+                skip_stages=request.skip_stages
             )
 
             # Schedule background summarization if we did not already summarize synchronously

@@ -1,9 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import './ChatInterface.css';
+
+// How many messages to show initially (from the end)
+const INITIAL_MESSAGES_COUNT = 20;
+const LOAD_MORE_COUNT = 20;
 
 export default function ChatInterface({
   conversation,
@@ -22,9 +26,14 @@ export default function ChatInterface({
   const [expandedStages, setExpandedStages] = useState({});
   // Track which message we are replying to (contains the finalResponse object)
   const [replyingTo, setReplyingTo] = useState(null);
+  // How many messages to show from the end (for lazy loading)
+  const [visibleCount, setVisibleCount] = useState(INITIAL_MESSAGES_COUNT);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
   const messageRefs = useRef({});
+  // Track which messages have been rendered (to avoid re-animating on re-render)
+  const seenMessagesRef = useRef(new Set());
 
   // Helper to strip markdown formatting for plain text preview
   const stripMarkdown = (text) => {
@@ -42,28 +51,64 @@ export default function ChatInterface({
       .replace(/^\d+\.\s+/gm, '');      // numbered lists
   };
 
-  // Get filtered messages (without summaries) - used for rendering and refs
-  const getFilteredMessages = () => {
+  // Memoized filtered messages (without summaries) - stable reference for rendering
+  // Each entry includes the original index for stable keys
+  const filteredMessages = useMemo(() => {
     if (!conversation?.messages) return [];
-    return conversation.messages.filter((m) => !m.stage3?.metadata?.summarized_count);
-  };
+    return conversation.messages
+      .map((m, originalIndex) => ({ ...m, _originalIndex: originalIndex }))
+      .filter((m) => !m.stage3?.metadata?.summarized_count);
+  }, [conversation?.messages]);
+
+  // Visible messages (for lazy loading) - show only the last N messages
+  const visibleMessages = useMemo(() => {
+    if (filteredMessages.length <= visibleCount) return filteredMessages;
+    return filteredMessages.slice(-visibleCount);
+  }, [filteredMessages, visibleCount]);
+
+  // Check if there are more messages to load
+  const hasMoreMessages = filteredMessages.length > visibleCount;
+
+  // Load more messages when scrolling up
+  const handleLoadMore = useCallback(() => {
+    setVisibleCount(prev => Math.min(prev + LOAD_MORE_COUNT, filteredMessages.length));
+  }, [filteredMessages.length]);
 
   // Scroll to a message by finding the assistant message that contains the reply_to text
-  const scrollToReplySource = (replyToText) => {
-    const filteredMessages = getFilteredMessages();
-    // Find the index in filtered messages whose stage3.response matches
-    const msgIndex = filteredMessages.findIndex(
+  const scrollToReplySource = useCallback((replyToText) => {
+    // Find the message in filtered messages whose stage3.response matches
+    const msg = filteredMessages.find(
       (m) => m.role === 'assistant' && m.stage3?.response === replyToText
     );
-    if (msgIndex !== -1 && messageRefs.current[msgIndex]) {
-      messageRefs.current[msgIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // Brief highlight effect
-      messageRefs.current[msgIndex].classList.add('highlight-message');
+    if (!msg) return;
+    
+    const originalIndex = msg._originalIndex;
+    
+    // If message is not in visible range, expand to show it
+    const msgIndexInFiltered = filteredMessages.findIndex(m => m._originalIndex === originalIndex);
+    const hiddenCount = filteredMessages.length - visibleCount;
+    if (msgIndexInFiltered < hiddenCount) {
+      // Need to load more messages to show this one
+      setVisibleCount(filteredMessages.length - msgIndexInFiltered + 5);
+      // Wait for render then scroll
       setTimeout(() => {
-        messageRefs.current[msgIndex]?.classList.remove('highlight-message');
-      }, 1500);
+        const el = messageRefs.current[originalIndex];
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('highlight-message');
+          setTimeout(() => el?.classList.remove('highlight-message'), 1500);
+        }
+      }, 100);
+    } else {
+      // Message is already visible
+      const el = messageRefs.current[originalIndex];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('highlight-message');
+        setTimeout(() => el?.classList.remove('highlight-message'), 1500);
+      }
     }
-  };
+  }, [filteredMessages, visibleCount]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -85,9 +130,11 @@ export default function ChatInterface({
     setSpinningIndex(null);
   }, [conversation?.messages]);
 
-  // Clear replyingTo when conversation changes
+  // Clear replyingTo and reset visible count when conversation changes
   useEffect(() => {
     setReplyingTo(null);
+    setVisibleCount(INITIAL_MESSAGES_COUNT);
+    seenMessagesRef.current = new Set();
   }, [conversation?.id]);
 
   const handleReply = (finalResponse) => {
@@ -128,6 +175,11 @@ export default function ChatInterface({
       handleSubmit(e);
     }
   };
+  // Compute lastUserIndex once for retry/edit controls (using original indices)
+  const lastUserOriginalIndex = useMemo(() => {
+    const lastUser = [...filteredMessages].reverse().find(m => m.role === 'user');
+    return lastUser ? lastUser._originalIndex : -1;
+  }, [filteredMessages]);
 
   if (!conversation) {
     return (
@@ -142,21 +194,35 @@ export default function ChatInterface({
 
   return (
     <div className="chat-interface">
-      <div className="messages-container">
-        {conversation.messages.length === 0 ? (
+      <div className="messages-container" ref={messagesContainerRef}>
+        {/* Load more button for lazy loading */}
+        {hasMoreMessages && (
+          <div className="load-more-container">
+            <button className="load-more-button" onClick={handleLoadMore}>
+              Load earlier messages ({filteredMessages.length - visibleCount} more)
+            </button>
+          </div>
+        )}
+        {filteredMessages.length === 0 ? (
           <div className="empty-state">
             <h2>Start a conversation</h2>
             <p>Ask a question to consult the LLM Council</p>
           </div>
         ) : (
-          (() => {
-            const filteredMessages = getFilteredMessages();
-            return filteredMessages.map((msg, index) => {
-            // determine if this message is the last user message for showing retry/edit controls
-            const lastUserIndex = filteredMessages.map(m => m.role).lastIndexOf('user');
-            const isLastUser = index === lastUserIndex && msg.role === 'user';
+          visibleMessages.map((msg) => {
+            const originalIndex = msg._originalIndex;
+            const isLastUser = originalIndex === lastUserOriginalIndex && msg.role === 'user';
+            // Only animate if this message hasn't been seen yet
+            const isNew = !seenMessagesRef.current.has(originalIndex);
+            if (isNew) {
+              seenMessagesRef.current.add(originalIndex);
+            }
             return (
-              <div key={index} className="message-group" ref={(el) => (messageRefs.current[index] = el)}>
+              <div 
+                key={originalIndex} 
+                className={`message-group${isNew ? ' animate-in' : ''}`} 
+                ref={(el) => (messageRefs.current[originalIndex] = el)}
+              >
                 {msg.role === 'user' ? (
                   <div className="user-message">
                     <div className="message-label">You</div>
@@ -191,7 +257,7 @@ export default function ChatInterface({
                             aria-label="Edit message"
                             title="Edit message"
                             onClick={() => {
-                              setEditingIndex(index);
+                              setEditingIndex(originalIndex);
                               setInput(msg.content || '');
                               setTimeout(() => {
                                 const textarea = document.querySelector('.message-input');
@@ -208,7 +274,7 @@ export default function ChatInterface({
                             // Determine spinning state: derived from message loading/status or optimistic local state
                             (() => {
                               const loadingActive = !!(msg.loading?.stage1 || msg.loading?.stage2 || msg.loading?.stage3);
-                              const spinning = spinningIndex === index || (msg.status === 'pending' && loadingActive);
+                              const spinning = spinningIndex === originalIndex || (msg.status === 'pending' && loadingActive);
                               return (
                                 <button
                                   className={`retry-button ${spinning ? 'spinning' : ''}`}
@@ -216,7 +282,7 @@ export default function ChatInterface({
                                   title={msg.status === 'failed' ? 'Retry' : 'Retry (still processing)'}
                                   onClick={() => {
                                     // optimistic local spinning indicator until parent updates message loading
-                                    setSpinningIndex(index);
+                                    setSpinningIndex(originalIndex);
                                     if (onRetryPending) onRetryPending(false);
                                   }}
                                 >
@@ -239,10 +305,10 @@ export default function ChatInterface({
                   {!msg.skipStages && msg.stage3?.response && (msg.stage1?.length > 0 || msg.stage2?.length > 0) && (
                     <button
                       className="stages-toggle"
-                      onClick={() => setExpandedStages(prev => ({ ...prev, [index]: !prev[index] }))}
+                      onClick={() => setExpandedStages(prev => ({ ...prev, [originalIndex]: !prev[originalIndex] }))}
                     >
                       <svg
-                        className={`toggle-chevron ${expandedStages[index] ? 'expanded' : ''}`}
+                        className={`toggle-chevron ${expandedStages[originalIndex] ? 'expanded' : ''}`}
                         width="16"
                         height="16"
                         viewBox="0 0 24 24"
@@ -252,12 +318,12 @@ export default function ChatInterface({
                       >
                         <polyline points="6 9 12 15 18 9"></polyline>
                       </svg>
-                      {expandedStages[index] ? 'Hide deliberation stages' : 'Show deliberation stages'}
+                      {expandedStages[originalIndex] ? 'Hide deliberation stages' : 'Show deliberation stages'}
                     </button>
                   )}
 
                   {/* Only show stage details if not skipping AND (expanded OR still loading) */}
-                  {!msg.skipStages && (expandedStages[index] || !msg.stage3?.response || msg.loading?.stage1 || msg.loading?.stage2 || msg.loading?.stage3) && (
+                  {!msg.skipStages && (expandedStages[originalIndex] || !msg.stage3?.response || msg.loading?.stage1 || msg.loading?.stage2 || msg.loading?.stage3) && (
                     <>
                       {/* Stage 1 */}
                       {msg.loading?.stage1 && (
@@ -305,8 +371,7 @@ export default function ChatInterface({
                 )}
               </div>
             );
-          });
-          })()
+          })
         )}
 
         {isLoading && !skipStages && (

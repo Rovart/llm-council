@@ -217,17 +217,21 @@ def add_assistant_message(
     conversation_id: str,
     stage1: List[Dict[str, Any]],
     stage2: List[Dict[str, Any]],
-    stage3: Dict[str, Any]
+    stage3: Dict[str, Any],
+    skip_stages: bool = False
 ):
     conversation = get_conversation(conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
-    conversation.setdefault('messages', []).append({
+    msg = {
         'role': 'assistant',
         'stage1': stage1,
         'stage2': stage2,
         'stage3': stage3
-    })
+    }
+    if skip_stages:
+        msg['skipStages'] = True
+    conversation.setdefault('messages', []).append(msg)
     save_conversation(conversation)
 
 

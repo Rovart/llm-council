@@ -43,8 +43,36 @@
   font-style: italic;
 }
 
+/* Load more button for lazy loading */
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 24px;
+}
+
+.load-more-button {
+  background: rgba(var(--chamber-burgundy-rgb), 0.1);
+  border: 1px solid var(--chamber-burgundy);
+  color: var(--chamber-burgundy);
+  padding: 8px 20px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-family: 'Crimson Pro', serif;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.load-more-button:hover {
+  background: rgba(var(--chamber-burgundy-rgb), 0.2);
+  transform: translateY(-1px);
+}
+
 .message-group {
   margin-bottom: 40px;
+}
+
+/* Only animate new messages - not existing ones on re-render */
+.message-group.animate-in {
   animation: fadeIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   opacity: 0;
   transform: translateY(20px);
