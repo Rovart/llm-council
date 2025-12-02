@@ -175,8 +175,11 @@ function App() {
         // non-fatal
         console.warn('removePendingMessages failed', e);
       }
-      // Optimistically add user message to UI
+      // Optimistically add user message to UI (include reply_to if replying)
       const userMessage = { role: 'user', content };
+      if (replyTo) {
+        userMessage.reply_to = replyTo.response;
+      }
       setCurrentConversation((prev) => ({
         ...prev,
         messages: [...prev.messages, userMessage],

@@ -120,6 +120,15 @@ export default function ChatInterface({
                     <div className="message-label">You</div>
                     <div className="message-row">
                       <div className="message-content">
+                        {/* Show reply reference if this message is a reply */}
+                        {msg.reply_to && (
+                          <div className="message-reply-ref">
+                            <div className="reply-ref-bar"></div>
+                            <div className="reply-ref-text">
+                              {msg.reply_to.length > 150 ? msg.reply_to.substring(0, 150) + '...' : msg.reply_to}
+                            </div>
+                          </div>
+                        )}
                         <div className="markdown-content">
                           <ReactMarkdown>{msg.content}</ReactMarkdown>
                         </div>
@@ -187,8 +196,8 @@ export default function ChatInterface({
                     </div>
                   )}
 
-                  {/* Show stages toggle when stage3 is complete and not skipping */}
-                  {!msg.skipStages && msg.stage3?.response && (msg.stage1 || msg.stage2) && (
+                  {/* Show stages toggle when stage3 is complete and not skipping, and stages have actual content */}
+                  {!msg.skipStages && msg.stage3?.response && (msg.stage1?.length > 0 || msg.stage2?.length > 0) && (
                     <button
                       className="stages-toggle"
                       onClick={() => setExpandedStages(prev => ({ ...prev, [index]: !prev[index] }))}

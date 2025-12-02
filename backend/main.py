@@ -997,8 +997,8 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
     async def event_generator():
         try:
-            # Add user message
-            storage.add_user_message(conversation_id, request.content)
+            # Add user message (with reply_to if present)
+            storage.add_user_message(conversation_id, request.content, reply_to=request.reply_to_response)
 
             # Start title generation in parallel (don't await yet)
             title_task = None

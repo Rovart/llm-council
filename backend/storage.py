@@ -138,16 +138,19 @@ def list_conversations() -> List[Dict[str, Any]]:
     return conversations
 
 
-def add_user_message(conversation_id: str, content: str):
+def add_user_message(conversation_id: str, content: str, reply_to: str | None = None):
     conversation = get_conversation(conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
-    conversation.setdefault('messages', []).append({
+    message = {
         'role': 'user',
         'content': content,
         'status': 'pending',
         'created_at': datetime.utcnow().isoformat()
-    })
+    }
+    if reply_to:
+        message['reply_to'] = reply_to
+    conversation.setdefault('messages', []).append(message)
     save_conversation(conversation)
 
 
