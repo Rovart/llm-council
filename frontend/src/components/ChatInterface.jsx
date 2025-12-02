@@ -42,11 +42,17 @@ export default function ChatInterface({
       .replace(/^\d+\.\s+/gm, '');      // numbered lists
   };
 
+  // Get filtered messages (without summaries) - used for rendering and refs
+  const getFilteredMessages = () => {
+    if (!conversation?.messages) return [];
+    return conversation.messages.filter((m) => !m.stage3?.metadata?.summarized_count);
+  };
+
   // Scroll to a message by finding the assistant message that contains the reply_to text
   const scrollToReplySource = (replyToText) => {
-    if (!conversation?.messages) return;
-    // Find the assistant message index whose stage3.response matches
-    const msgIndex = conversation.messages.findIndex(
+    const filteredMessages = getFilteredMessages();
+    // Find the index in filtered messages whose stage3.response matches
+    const msgIndex = filteredMessages.findIndex(
       (m) => m.role === 'assistant' && m.stage3?.response === replyToText
     );
     if (msgIndex !== -1 && messageRefs.current[msgIndex]) {
@@ -143,12 +149,10 @@ export default function ChatInterface({
             <p>Ask a question to consult the LLM Council</p>
           </div>
         ) : (
-          conversation.messages
-            // Filter out summary messages (those with summarized_count metadata)
-            .filter((msg) => !msg.stage3?.metadata?.summarized_count)
-            .map((msg, index) => {
+          (() => {
+            const filteredMessages = getFilteredMessages();
+            return filteredMessages.map((msg, index) => {
             // determine if this message is the last user message for showing retry/edit controls
-            const filteredMessages = conversation.messages.filter((m) => !m.stage3?.metadata?.summarized_count);
             const lastUserIndex = filteredMessages.map(m => m.role).lastIndexOf('user');
             const isLastUser = index === lastUserIndex && msg.role === 'user';
             return (
@@ -301,7 +305,8 @@ export default function ChatInterface({
                 )}
               </div>
             );
-          })
+          });
+          })()
         )}
 
         {isLoading && !skipStages && (
