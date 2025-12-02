@@ -51,25 +51,17 @@ async def _background_summarize_and_persist(conversation_id: str, num_to_summari
         if not summary_text:
             return
 
-        # Persist: append a summary assistant message but do NOT remove original messages
+        # Store summary in conversation metadata, NOT as a message
+        # This keeps the summary available for context but doesn't show in chat
         convo = storage.get_conversation(conversation_id)
-        if not convo or not convo.get('messages'):
+        if not convo:
             return
-        summary_msg = {
-            'role': 'assistant',
-            'stage1': [],
-            'stage2': [],
-            'stage3': {
-                'model': chair,
-                'response': summary_text,
-                'metadata': {
-                    'summarized_count': num_to_summarize,
-                    'chairman_model': chair,
-                    'summary_generated_at': datetime.utcnow().isoformat()
-                }
-            }
+        convo['context_summary'] = {
+            'text': summary_text,
+            'summarized_count': num_to_summarize,
+            'chairman_model': chair,
+            'generated_at': datetime.utcnow().isoformat()
         }
-        convo['messages'].append(summary_msg)
         storage.save_conversation(convo)
     except Exception as e:
         print(f"[BACKGROUND_SUMMARY] failed: {e}")
@@ -311,9 +303,14 @@ async def retry_last_pending(conversation_id: str, body: Dict[str, Any]):
         if summary_text:
             try:
                 convo = storage.get_conversation(conversation_id)
-                if convo and convo.get('messages'):
-                    summary_msg = {'role': 'assistant', 'stage1': [], 'stage2': [], 'stage3': {'model': chair, 'response': summary_text, 'metadata': {'summarized_count': len(to_summarize), 'chairman_model': chair, 'summary_generated_at': datetime.utcnow().isoformat()}}}
-                    convo['messages'].append(summary_msg)
+                if convo:
+                    # Store summary in metadata, not as a message
+                    convo['context_summary'] = {
+                        'text': summary_text,
+                        'summarized_count': len(to_summarize),
+                        'chairman_model': chair,
+                        'generated_at': datetime.utcnow().isoformat()
+                    }
                     storage.save_conversation(convo)
                     prior_context = summary_text + '\n\n' + '\n\n'.join(remaining)
                     did_sync_summary = True
@@ -445,9 +442,14 @@ async def retry_last_pending_stream(conversation_id: str, body: Dict[str, Any]):
                 if summary_text:
                     try:
                         convo = storage.get_conversation(conversation_id)
-                        if convo and convo.get('messages'):
-                            summary_msg = {'role': 'assistant', 'stage1': [], 'stage2': [], 'stage3': {'model': chair, 'response': summary_text, 'metadata': {'summarized_count': len(to_summarize), 'chairman_model': chair, 'summary_generated_at': datetime.utcnow().isoformat()}}}
-                            convo['messages'].append(summary_msg)
+                        if convo:
+                            # Store summary in metadata, not as a message
+                            convo['context_summary'] = {
+                                'text': summary_text,
+                                'summarized_count': len(to_summarize),
+                                'chairman_model': chair,
+                                'generated_at': datetime.utcnow().isoformat()
+                            }
                             storage.save_conversation(convo)
                             prior_context = summary_text + '\n\n' + '\n\n'.join(remaining)
                             did_sync_summary = True
@@ -924,12 +926,16 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
             summary_text = None
 
         if summary_text:
-            # Persist the summary as an assistant final message but keep originals
+            # Store summary in metadata, not as a message
             try:
                 convo = storage.get_conversation(conversation_id)
-                if convo and convo.get('messages'):
-                    summary_msg = {'role': 'assistant', 'stage1': [], 'stage2': [], 'stage3': {'model': chair, 'response': summary_text, 'metadata': {'summarized_count': len(to_summarize), 'chairman_model': chair, 'summary_generated_at': datetime.utcnow().isoformat()}}}
-                    convo['messages'].append(summary_msg)
+                if convo:
+                    convo['context_summary'] = {
+                        'text': summary_text,
+                        'summarized_count': len(to_summarize),
+                        'chairman_model': chair,
+                        'generated_at': datetime.utcnow().isoformat()
+                    }
                     storage.save_conversation(convo)
                     prior_context = summary_text + '\n\n' + '\n\n'.join(remaining)
                     did_sync_summary = True
@@ -937,10 +943,10 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
                     prior_context = '\n\n'.join(remaining)
             except Exception:
                 prior_context = '\n\n'.join(remaining)
-            else:
-                # summarization failed; fall back to using the most recent
-                # IMMEDIATE_CONTEXT_KEEP responses
-                prior_context = '\n\n'.join(remaining)
+        else:
+            # summarization failed; fall back to using the most recent
+            # IMMEDIATE_CONTEXT_KEEP responses
+            prior_context = '\n\n'.join(remaining)
 
     # Run the 3-stage council process with prior_context
     try:
@@ -1051,18 +1057,23 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                     summary_text = None
 
                 if summary_text:
-                        try:
-                            convo = storage.get_conversation(conversation_id)
-                            if convo and convo.get('messages'):
-                                summary_msg = {'role': 'assistant', 'stage1': [], 'stage2': [], 'stage3': {'model': chair, 'response': summary_text, 'metadata': {'summarized_count': len(to_summarize), 'chairman_model': chair, 'summary_generated_at': datetime.utcnow().isoformat()}}}
-                                convo['messages'].append(summary_msg)
-                                storage.save_conversation(convo)
-                                prior_context = summary_text + '\n\n' + '\n\n'.join(remaining)
-                                did_sync_summary = True
-                            else:
-                                prior_context = '\n\n'.join(remaining)
-                        except Exception:
+                    try:
+                        convo = storage.get_conversation(conversation_id)
+                        if convo:
+                            # Store summary in metadata, not as a message
+                            convo['context_summary'] = {
+                                'text': summary_text,
+                                'summarized_count': len(to_summarize),
+                                'chairman_model': chair,
+                                'generated_at': datetime.utcnow().isoformat()
+                            }
+                            storage.save_conversation(convo)
+                            prior_context = summary_text + '\n\n' + '\n\n'.join(remaining)
+                            did_sync_summary = True
+                        else:
                             prior_context = '\n\n'.join(remaining)
+                    except Exception:
+                        prior_context = '\n\n'.join(remaining)
                 else:
                     prior_context = '\n\n'.join(remaining)
 

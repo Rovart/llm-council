@@ -487,3 +487,27 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
+
+/* Clickable reply reference */
+.message-reply-ref.clickable {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.message-reply-ref.clickable:hover {
+  background: rgba(107, 39, 55, 0.08);
+}
+
+/* Highlight effect when scrolling to a message */
+.message-group.highlight-message {
+  animation: highlightPulse 1.5s ease-out;
+}
+
+@keyframes highlightPulse {
+  0% {
+    background: rgba(212, 165, 116, 0.3);
+  }
+  100% {
+    background: transparent;
+  }
+}

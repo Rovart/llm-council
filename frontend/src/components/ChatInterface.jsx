@@ -24,6 +24,40 @@ export default function ChatInterface({
   const [replyingTo, setReplyingTo] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const messageRefs = useRef({});
+
+  // Helper to strip markdown formatting for plain text preview
+  const stripMarkdown = (text) => {
+    if (!text) return '';
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '$1')  // bold
+      .replace(/\*(.+?)\*/g, '$1')      // italic
+      .replace(/__(.+?)__/g, '$1')      // bold
+      .replace(/_(.+?)_/g, '$1')        // italic
+      .replace(/~~(.+?)~~/g, '$1')      // strikethrough
+      .replace(/`(.+?)`/g, '$1')        // inline code
+      .replace(/^#+\s*/gm, '')          // headers
+      .replace(/\[(.+?)\]\(.+?\)/g, '$1') // links
+      .replace(/^[-*]\s+/gm, '')        // list items
+      .replace(/^\d+\.\s+/gm, '');      // numbered lists
+  };
+
+  // Scroll to a message by finding the assistant message that contains the reply_to text
+  const scrollToReplySource = (replyToText) => {
+    if (!conversation?.messages) return;
+    // Find the assistant message index whose stage3.response matches
+    const msgIndex = conversation.messages.findIndex(
+      (m) => m.role === 'assistant' && m.stage3?.response === replyToText
+    );
+    if (msgIndex !== -1 && messageRefs.current[msgIndex]) {
+      messageRefs.current[msgIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Brief highlight effect
+      messageRefs.current[msgIndex].classList.add('highlight-message');
+      setTimeout(() => {
+        messageRefs.current[msgIndex]?.classList.remove('highlight-message');
+      }, 1500);
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -109,12 +143,16 @@ export default function ChatInterface({
             <p>Ask a question to consult the LLM Council</p>
           </div>
         ) : (
-          conversation.messages.map((msg, index) => {
+          conversation.messages
+            // Filter out summary messages (those with summarized_count metadata)
+            .filter((msg) => !msg.stage3?.metadata?.summarized_count)
+            .map((msg, index) => {
             // determine if this message is the last user message for showing retry/edit controls
-            const lastUserIndex = conversation.messages.map(m => m.role).lastIndexOf('user');
+            const filteredMessages = conversation.messages.filter((m) => !m.stage3?.metadata?.summarized_count);
+            const lastUserIndex = filteredMessages.map(m => m.role).lastIndexOf('user');
             const isLastUser = index === lastUserIndex && msg.role === 'user';
             return (
-              <div key={index} className="message-group">
+              <div key={index} className="message-group" ref={(el) => (messageRefs.current[index] = el)}>
                 {msg.role === 'user' ? (
                   <div className="user-message">
                     <div className="message-label">You</div>
@@ -122,10 +160,16 @@ export default function ChatInterface({
                       <div className="message-content">
                         {/* Show reply reference if this message is a reply */}
                         {msg.reply_to && (
-                          <div className="message-reply-ref">
+                          <div
+                            className="message-reply-ref clickable"
+                            onClick={() => scrollToReplySource(msg.reply_to)}
+                            title="Click to scroll to original message"
+                          >
                             <div className="reply-ref-bar"></div>
                             <div className="reply-ref-text">
-                              {msg.reply_to.length > 150 ? msg.reply_to.substring(0, 150) + '...' : msg.reply_to}
+                              {stripMarkdown(msg.reply_to).length > 150
+                                ? stripMarkdown(msg.reply_to).substring(0, 150) + '...'
+                                : stripMarkdown(msg.reply_to)}
                             </div>
                           </div>
                         )}
@@ -186,15 +230,6 @@ export default function ChatInterface({
                 ) : (
                   <div className="assistant-message">
                     <div className="message-label">{msg.skipStages ? 'Assistant' : 'LLM Council'}</div>
-
-                  {msg.stage3?.metadata?.summarized_count && (
-                    <div className="summary-indicator">
-                      <strong>Summary:</strong>{' '}
-                      Summarized {msg.stage3.metadata.summarized_count} messages
-                      {msg.stage3.metadata.chairman_model ? ` — by ${msg.stage3.metadata.chairman_model}` : ''}
-                      {msg.stage3.metadata.summary_generated_at ? ` — ${new Date(msg.stage3.metadata.summary_generated_at).toLocaleString()}` : ''}
-                    </div>
-                  )}
 
                   {/* Show stages toggle when stage3 is complete and not skipping, and stages have actual content */}
                   {!msg.skipStages && msg.stage3?.response && (msg.stage1?.length > 0 || msg.stage2?.length > 0) && (
@@ -288,9 +323,9 @@ export default function ChatInterface({
                 Replying to {replyingTo.model.split('/')[1] || replyingTo.model}
               </div>
               <div className="reply-preview">
-                {replyingTo.response.length > 150
-                  ? replyingTo.response.substring(0, 150) + '...'
-                  : replyingTo.response}
+                {stripMarkdown(replyingTo.response).length > 150
+                  ? stripMarkdown(replyingTo.response).substring(0, 150) + '...'
+                  : stripMarkdown(replyingTo.response)}
               </div>
             </div>
             <button

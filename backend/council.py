@@ -263,7 +263,7 @@ Your task as Chairman is to synthesize all of this information into a single, co
 - The individual responses and their insights
 - The peer rankings and what they reveal about response quality
 - Any patterns of agreement or disagreement
-- Take into consideration the user's message if it corrects you or adds context.
+- *Take into consideration over your beliefs the 'master' message if it corrects you or adds context*
 
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
 
