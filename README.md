@@ -163,3 +163,19 @@ npm run dev
 - **Storage:** JSON files in `data/conversations/`
 - **Package Management:** uv for Python, npm for JavaScript
 - **LLM Providers:** OpenRouter API, Ollama HTTP API, OpenAI-compatible APIs
+
+## Screenshots
+
+Below are a few screenshots of the app. Images are stored under `.github/screenshots/` to avoid bloating the main repo tree.
+
+- **Model Manager:** `.github/screenshots/screenshot1.png`
+
+	![Model Manager](.github/screenshots/screenshot1.png)
+
+- **Conversation view:** `.github/screenshots/screenshot2.png`
+
+	![Conversation view](.github/screenshots/screenshot2.png)
+
+- **Chairman output:** `.github/screenshots/screenshot3.png`
+
+	![Chairman output](.github/screenshots/screenshot3.png)
