@@ -2,6 +2,18 @@
 
 ![llmcouncil](screenshots/screenshot1.png)
 
+---
+
+## Screenshots
+
+<div align="center">
+
+| Model Manager | Conversation View | Chairman Output |
+|---:|:---:|:---|
+| ![Model Manager](screenshots/screenshot1.png) | ![Conversation](screenshots/screenshot2.png) | ![Chairman](screenshots/screenshot3.png) |
+
+</div>
+
 The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, etc.), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses multiple LLM providers to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
 
 **Supported Providers:**
