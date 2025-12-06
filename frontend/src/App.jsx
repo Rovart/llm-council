@@ -10,26 +10,12 @@ function App() {
   const [currentConversation, setCurrentConversation] = useState(null);
   const [loadingConversationId, setLoadingConversationId] = useState(null); // Track which conversation is loading
   const [currentSkipStages, setCurrentSkipStages] = useState(false);
-  const [provider, setProvider] = useState('ollama');
   const [activeStreams, setActiveStreams] = useState(new Set()); // For sidebar display
 
   // Cache for in-flight conversation states (streaming updates stored by conversation ID)
   const conversationCacheRef = useRef({});
   // Track which conversations have active streams
   const activeStreamsRef = useRef(new Set());
-
-  // On mount, load saved council config and prefer its provider if present
-  useEffect(() => {
-    const loadProvider = async () => {
-      try {
-        const conf = await api.getCouncilConfig();
-        if (conf && conf.provider) setProvider(conf.provider);
-      } catch (e) {
-        // ignore - keep default
-      }
-    };
-    loadProvider();
-  }, []);
 
   // Load conversations on mount
   useEffect(() => {
@@ -785,8 +771,6 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
-        provider={provider}
-        onProviderChange={setProvider}
         onConversationsChange={setConversations}
         activeStreams={activeStreams}
       />
@@ -797,7 +781,7 @@ function App() {
         onSubmitEdited={handleSubmitEdited}
         isLoading={loadingConversationId === currentConversationId}
         skipStages={currentSkipStages}
-        provider={provider}
+        provider="hybrid"
       />
     </div>
   );

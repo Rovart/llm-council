@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import './Sidebar.css';
-import ProviderConfig from './ProviderConfig';
+import HybridConfig from './HybridConfig';
 import { api } from '../api';
 
 export default function Sidebar({
@@ -8,8 +8,6 @@ export default function Sidebar({
   currentConversationId,
   onSelectConversation,
   onNewConversation,
-  provider,
-  onProviderChange,
   onConversationsChange,
   activeStreams,
 }) {
@@ -32,17 +30,6 @@ export default function Sidebar({
         <button className="new-conversation-btn" onClick={onNewConversation}>
           + New Conversation
         </button>
-      </div>
-
-      <div className="provider-toggle">
-        <select
-          className="provider-select"
-          value={provider || 'openrouter'}
-          onChange={(e) => onProviderChange(e.target.value)}
-        >
-          <option value="openrouter">OpenRouter (paid)</option>
-          <option value="ollama">Ollama (local, free)</option>
-        </select>
       </div>
 
       <div className="conversation-list">
@@ -75,7 +62,7 @@ export default function Sidebar({
         )}
       </div>
       <div className="sidebar-footer">
-        <ProviderConfig provider={provider} />
+        <HybridConfig />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 """FastAPI backend for LLM Council."""
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -619,18 +619,181 @@ async def retry_last_pending_stream(conversation_id: str, body: Dict[str, Any]):
 
 
 @app.get("/api/available-models")
-async def available_models(provider: str = "ollama"):
+async def available_models(provider: str = "hybrid"):
     """Return a list of available models for the selected provider.
 
-    Query parameter `provider` can be 'ollama' or 'openrouter'.
+    Query parameter `provider` can be 'ollama', 'openrouter', 'custom', or 'hybrid'.
+    In hybrid mode, returns local Ollama models, OpenRouter models, and Custom API models.
     """
-    if provider and provider.lower() in ("ollama", "local"):
-        models = await ollama.list_models()
-        return {"provider": "ollama", "models": models}
+    from . import openrouter as openrouter_client
+    
+    result = {"provider": provider, "models": [], "ollama_models": [], "openrouter_models": [], "custom_models": []}
+    
+    # Get Ollama models
+    if provider.lower() in ("ollama", "local", "hybrid"):
+        try:
+            ollama_models = await ollama.list_models()
+            result["ollama_models"] = ollama_models
+        except Exception as e:
+            print(f"Error fetching Ollama models: {e}")
+            result["ollama_models"] = []
+        if provider.lower() in ("ollama", "local"):
+            result["models"] = result["ollama_models"]
+            return result
 
-    # Default to returning configured council models for OpenRouter
-    from .config import COUNCIL_MODELS
-    return {"provider": "openrouter", "models": COUNCIL_MODELS}
+    # Get OpenRouter models
+    if provider.lower() in ("openrouter", "hybrid"):
+        try:
+            openrouter_models = await openrouter_client.list_models()
+            if not openrouter_models:
+                # Fallback to configured council models if no API key
+                from .config import COUNCIL_MODELS
+                openrouter_models = COUNCIL_MODELS
+            result["openrouter_models"] = openrouter_models
+        except Exception as e:
+            print(f"Error fetching OpenRouter models: {e}")
+            from .config import COUNCIL_MODELS
+            result["openrouter_models"] = COUNCIL_MODELS
+        if provider.lower() == "openrouter":
+            result["models"] = result["openrouter_models"]
+            return result
+    
+    # Get Custom API models
+    if provider.lower() in ("custom", "hybrid"):
+        try:
+            custom_url = config_store.get_custom_api_url()
+            custom_key = config_store.get_custom_api_key()
+            if custom_url:
+                custom_models = await openrouter_client.list_models_from_url(custom_url, custom_key)
+                result["custom_models"] = custom_models
+        except Exception as e:
+            print(f"Error fetching Custom API models: {e}")
+            result["custom_models"] = []
+        if provider.lower() == "custom":
+            result["models"] = result["custom_models"]
+            return result
+    
+    # Hybrid mode - combine all lists
+    combined = []
+    for m in result["ollama_models"]:
+        combined.append({"id": m, "name": m, "provider": "ollama"})
+    for m in result["openrouter_models"]:
+        combined.append({"id": m, "name": m, "provider": "openrouter"})
+    for m in result["custom_models"]:
+        combined.append({"id": m, "name": m, "provider": "custom"})
+    
+    result["models"] = combined
+    return result
+
+
+@app.get("/api/openrouter/validate")
+async def validate_openrouter_key(api_key: str = None, api_url: str = None):
+    """Validate an OpenRouter API key."""
+    from . import openrouter as openrouter_client
+    # If no key provided, use the stored one
+    if not api_key:
+        api_key = config_store.get_openrouter_api_key()
+    if not api_url:
+        api_url = config_store.get_openrouter_api_url()
+    result = await openrouter_client.validate_api_key(api_key, api_url)
+    return result
+
+
+@app.post("/api/openrouter/config")
+async def set_openrouter_config(request: Request):
+    """Save OpenRouter configuration (API key and URL)."""
+    body = await request.json()
+    api_key = body.get('api_key')
+    api_url = body.get('api_url')
+    
+    if api_key is not None:
+        config_store.set_openrouter_api_key(api_key)
+    if api_url is not None:
+        config_store.set_openrouter_api_url(api_url)
+    
+    return {"success": True}
+
+
+@app.get("/api/openrouter/config")
+async def get_openrouter_config():
+    """Get OpenRouter configuration (masked API key)."""
+    api_key = config_store.get_openrouter_api_key()
+    api_url = config_store.get_openrouter_api_url()
+    
+    # Mask the API key for security (show only last 4 chars)
+    masked_key = ''
+    if api_key:
+        if len(api_key) > 8:
+            masked_key = '*' * (len(api_key) - 4) + api_key[-4:]
+        else:
+            masked_key = '*' * len(api_key)
+    
+    return {
+        "api_key_masked": masked_key,
+        "api_key_set": bool(api_key),
+        "api_url": api_url
+    }
+
+
+# Custom API endpoints
+@app.post("/api/custom-api/config")
+async def set_custom_api_config(request: Request):
+    """Save Custom API configuration (URL and optional key)."""
+    body = await request.json()
+    api_key = body.get('api_key')
+    api_url = body.get('api_url')
+    
+    if api_key is not None:
+        config_store.set_custom_api_key(api_key)
+    if api_url is not None:
+        config_store.set_custom_api_url(api_url)
+    
+    return {"success": True}
+
+
+@app.get("/api/custom-api/config")
+async def get_custom_api_config():
+    """Get Custom API configuration (masked API key)."""
+    api_key = config_store.get_custom_api_key()
+    api_url = config_store.get_custom_api_url()
+    
+    # Mask the API key for security
+    masked_key = ''
+    if api_key:
+        if len(api_key) > 8:
+            masked_key = '*' * (len(api_key) - 4) + api_key[-4:]
+        else:
+            masked_key = '*' * len(api_key)
+    
+    return {
+        "api_key_masked": masked_key,
+        "api_key_set": bool(api_key),
+        "api_url": api_url
+    }
+
+
+@app.get("/api/custom-api/validate")
+async def validate_custom_api(api_url: str = None, api_key: str = None):
+    """Validate a Custom API by trying to list models."""
+    from . import openrouter as openrouter_client
+    
+    if not api_url:
+        api_url = config_store.get_custom_api_url()
+    if api_key is None:
+        api_key = config_store.get_custom_api_key()
+    
+    if not api_url:
+        return {'valid': False, 'message': 'API URL is required'}
+    
+    try:
+        models = await openrouter_client.list_models_from_url(api_url, api_key)
+        if models:
+            return {'valid': True, 'message': f'Connected successfully. {len(models)} models available.'}
+        else:
+            return {'valid': False, 'message': 'Connected but no models found'}
+    except Exception as e:
+        return {'valid': False, 'message': f'Connection failed: {e}'}
+
 
 @app.get('/api/ollama/registry')
 async def ollama_registry(query: str):

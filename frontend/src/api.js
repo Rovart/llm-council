@@ -319,4 +319,55 @@ export const api = {
     if (!response.ok) throw new Error('Failed to search registry');
     return response.json();
   },
+
+  // OpenRouter configuration APIs
+  async getOpenRouterConfig() {
+    const response = await fetch(`${API_BASE}/api/openrouter/config`);
+    if (!response.ok) throw new Error('Failed to get OpenRouter config');
+    return response.json();
+  },
+
+  async setOpenRouterConfig(config) {
+    const response = await fetch(`${API_BASE}/api/openrouter/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) throw new Error('Failed to update OpenRouter config');
+    return response.json();
+  },
+
+  async validateOpenRouterKey(apiKey = null) {
+    const params = new URLSearchParams();
+    if (apiKey) params.append('api_key', apiKey);
+    const response = await fetch(`${API_BASE}/api/openrouter/validate?${params.toString()}`);
+    if (!response.ok) throw new Error('Failed to validate OpenRouter key');
+    return response.json();
+  },
+
+  // Custom API configuration APIs
+  async getCustomApiConfig() {
+    const response = await fetch(`${API_BASE}/api/custom-api/config`);
+    if (!response.ok) throw new Error('Failed to get Custom API config');
+    return response.json();
+  },
+
+  async setCustomApiConfig(config) {
+    const response = await fetch(`${API_BASE}/api/custom-api/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) throw new Error('Failed to update Custom API config');
+    return response.json();
+  },
+
+  async validateCustomApi(apiUrl = null, apiKey = null) {
+    const params = new URLSearchParams();
+    if (apiUrl) params.append('api_url', apiUrl);
+    if (apiKey) params.append('api_key', apiKey);
+    const response = await fetch(`${API_BASE}/api/custom-api/validate?${params.toString()}`);
+    if (!response.ok) throw new Error('Failed to validate Custom API');
+    return response.json();
+  },
 };

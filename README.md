@@ -2,7 +2,14 @@
 
 ![llmcouncil](header.jpg)
 
-The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, etc.), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses OpenRouter (or Ollama locally) to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
+The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, etc.), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses multiple LLM providers to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
+
+**Supported Providers:**
+- **OpenRouter** (cloud) — Access frontier models like GPT-4, Claude, Gemini, Grok
+- **Ollama** (local) — Run open-source models locally for free
+- **Custom API** — Connect any OpenAI-compatible endpoint
+
+Mix and match models from different providers in the same council!
 
 In a bit more detail, here is what happens when you submit a query:
 
@@ -12,132 +19,147 @@ In a bit more detail, here is what happens when you submit a query:
 
 ## Features
 
-### Dual Provider Support
-- **OpenRouter (cloud, paid)**: Access to many frontier models (GPT-4, Claude, Gemini, Grok, etc.) via the OpenRouter API.
-- **Ollama (local, free)**: Run models locally with zero cost. Seamlessly switch between providers from the sidebar.
+### Hybrid Provider Mode
+- Mix local Ollama models with cloud OpenRouter models in the same council
+- Auto-detection of provider based on model name
+- Configure all providers from a single "Model Manager" UI
 
-### Ollama Integration
-- Auto-detect installed Ollama models via HTTP API or CLI.
-- Browse recommended model families with specific version tags.
-- Install/uninstall models directly from the UI with real-time streaming logs.
-- Add/remove models from the Council and select the Chairman model.
+### Ollama Integration (Local Models)
+- Auto-detect installed Ollama models via HTTP API
+- Browse recommended model families with specific version tags
+- Install/uninstall models directly from the UI with real-time streaming logs
+- Zero cost — run models on your own hardware
+
+### OpenRouter Integration (Cloud Models)
+- Access to frontier models (GPT-4, Claude, Gemini, Grok, etc.)
+- Configure API key directly in the UI
+- Pay-per-use via OpenRouter credits
+
+### Custom API Support
+- Connect any OpenAI-compatible endpoint (LM Studio, vLLM, etc.)
+- Optional API key authentication
+- Add custom models to your council
 
 ### Streaming Responses
-- Real-time SSE streaming for all three stages (first opinions, reviews, final response).
-- Progressive UI updates as each model responds.
-- Per-conversation loading state — switch conversations while streaming continues in the background.
-- Sidebar spinner indicator for conversations with active streams.
+- Real-time SSE streaming for all three stages (first opinions, reviews, final response)
+- Progressive UI updates as each model responds
+- Per-conversation loading state — switch conversations while streaming continues in the background
+- Sidebar spinner indicator for conversations with active streams
 
 ### Conversation Management
-- Create, delete, and switch between multiple conversations.
-- Automatic title generation based on conversation content.
-- Persistent storage in JSON files.
+- Create, delete, and switch between multiple conversations
+- Automatic title generation based on conversation content
+- Persistent storage in JSON files
+- Reply to specific messages for focused follow-ups
+- Export conversations to PDF
 
 ### Context Summarization
-- Preserves recent assistant responses (up to 10-message window) as full context.
-- Automatically summarizes older conversation history to stay within token limits.
-- Summary metadata displayed in UI so users can distinguish compacted prior context.
+- Preserves recent assistant responses (up to 10-message window) as full context
+- Automatically summarizes older conversation history to stay within token limits
+- Summary metadata displayed in UI so users can distinguish compacted prior context
 
 ### Error Handling & Recovery
-- Messages interrupted by page reload are automatically marked as failed.
-- Retry failed messages with a single click (retry button).
-- Edit and resubmit failed messages (edit button).
-- Old failed/pending messages are auto-cleaned on new submissions.
+- Messages interrupted by page reload are automatically marked as failed
+- Retry failed messages with a single click (retry button)
+- Edit and resubmit failed messages (edit button)
+- Old failed/pending messages are auto-cleaned on new submissions
 
 ### Skip to Chairman Mode
-- Toggle to bypass Stage 1 & 2 and send queries directly to the Chairman model.
-- Useful for quick responses without the full council deliberation.
+- Toggle to bypass Stage 1 & 2 and send queries directly to the Chairman model
+- Useful for quick responses without the full council deliberation
 
 ### Modern UI
-- Clean, responsive design with a parliament/council aesthetic.
-- Collapsible stage views for first opinions and reviews.
-- Markdown rendering for all responses.
-- Pill-style model chips and aligned dropdowns.
-- Hover effects, subtle shadows, and clear destructive action styling.
+- Clean, responsive design with a parliament/council aesthetic
+- Collapsible stage views for first opinions and reviews
+- Markdown rendering for all responses
+- Pill-style model toggles for easy selection
+- Hover effects, subtle shadows, and clear destructive action styling
 
-## Setup
+## Quick Start
 
 ### 1. Install Dependencies
 
-The project uses [uv](https://docs.astral.sh/uv/) for project management.
+The project uses [uv](https://docs.astral.sh/uv/) for Python package management.
 
-**Backend:**
 ```bash
+# Backend
 uv sync
+
+# Frontend
+cd frontend && npm install && cd ..
 ```
 
-**Frontend:**
-```bash
-cd frontend
-npm install
-cd ..
-```
+### 2. Start the Application
 
-### 2. Configure API Key
-
-Create a `.env` file in the project root:
-
-```bash
-OPENROUTER_API_KEY=sk-or-v1-...
-```
-
-Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase the credits you need, or sign up for automatic top up.
-
-### 3. Configure Models (Optional)
-
-Edit `backend/config.py` to customize the council:
-
-```python
-COUNCIL_MODELS = [
-    "openai/gpt-5.1",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-sonnet-4.5",
-    "x-ai/grok-4",
-]
-
-CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
-```
-
-## Running the Application
-
-**Option 1: Use the start script**
 ```bash
 ./start.sh
 ```
 
-**Option 2: Run manually**
+Then open http://localhost:5173 in your browser.
 
-Terminal 1 (Backend):
+### 3. Configure Your Models
+
+Click the **⚙️ gear icon** next to "Models" in the sidebar to open the Model Manager.
+
+**For Local Models (Ollama):**
+1. Go to the **Local** tab
+2. Installed models appear automatically (if Ollama is running)
+3. Click models to add/remove them from your council
+4. Use "Install" to download recommended models
+
+**For Cloud Models (OpenRouter):**
+1. Go to the **OpenRouter** tab
+2. Enter your API key from [openrouter.ai](https://openrouter.ai/)
+3. Click "Save" to validate and load available models
+4. Click models to add them to your council
+
+**For Custom APIs:**
+1. Go to the **Custom** tab
+2. Enter your API URL (e.g., `http://localhost:1234/v1`)
+3. Add API key if required
+4. Click "Save" to connect
+
+### 4. Select a Chairman
+
+In the sidebar under "Chairman", select which model will synthesize the final response.
+
+## Environment Variables (Optional)
+
+Create a `.env` file in the project root for advanced configuration:
+
+```bash
+# OpenRouter (can also be configured in UI)
+OPENROUTER_API_KEY=sk-or-v1-...
+
+# Ollama settings
+USE_OLLAMA=true
+OLLAMA_API_URL=http://localhost:11434
+OLLAMA_USE_CLI=true  # Enable install/uninstall from UI
+
+# Custom API (can also be configured in UI)
+CUSTOM_API_URL=http://localhost:1234/v1
+CUSTOM_API_KEY=optional-key
+```
+
+## Running Manually
+
+If you prefer not to use the start script:
+
+**Terminal 1 (Backend):**
 ```bash
 uv run python -m backend.main
 ```
 
-Terminal 2 (Frontend):
+**Terminal 2 (Frontend):**
 ```bash
 cd frontend
 npm run dev
 ```
 
-Then open http://localhost:5173 in your browser.
-
-## Provider: OpenRouter vs Ollama (Local)
-
-You can use either OpenRouter (cloud, paid) or Ollama (local, free) as the LLM provider.
-
-- To use Ollama by default, update `.env` and set `USE_OLLAMA=true` and configure `OLLAMA_API_URL` and `OLLAMA_USE_CLI` if you want automatic CLI installs.
-- Start the app as usual with `./start.sh` or `uv run python -m backend.main` and `npm run dev` for the frontend.
-
-In the UI (Sidebar) you can switch between providers. When Ollama is selected, a new section appears allowing you to:
-
-- See detected **installed** Ollama models (via the local Ollama API or CLI).
-- See **recommended** models that are not installed and an `Install` action to pull them (if `OLLAMA_USE_CLI` is configured on the backend).
-- Add/remove models to the Council and pick the **Chairman** model (persisted in `data/conversations/config.json`).
-
-Note: If you switch to `ollama` provider and your existing council contains OpenRouter model IDs, update the council to local Ollama model names to ensure the calls succeed.
-
 ## Tech Stack
 
-- **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API
-- **Frontend:** React + Vite, react-markdown for rendering
+- **Backend:** FastAPI (Python 3.10+), async httpx, SSE streaming
+- **Frontend:** React 18 + Vite, react-markdown for rendering
 - **Storage:** JSON files in `data/conversations/`
 - **Package Management:** uv for Python, npm for JavaScript
+- **LLM Providers:** OpenRouter API, Ollama HTTP API, OpenAI-compatible APIs
