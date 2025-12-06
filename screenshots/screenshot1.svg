@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="240" viewBox="0 0 1200 240">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1">
+      <stop offset="0" stop-color="#3b82f6" />
+      <stop offset="1" stop-color="#06b6d4" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="240" fill="#0f172a" />
+  <rect x="20" y="20" width="1160" height="200" rx="12" fill="url(#g)" opacity="0.12" />
+  <g transform="translate(40,48)">
+    <text x="0" y="36" font-family="Inter, Arial, Helvetica, sans-serif" font-size="36" fill="#ffffff" font-weight="700">LLM Council</text>
+    <text x="0" y="76" font-family="Inter, Arial, Helvetica, sans-serif" font-size="16" fill="#e6eef6">Mix local Ollama models and cloud OpenRouter models into a single council.</text>
+  </g>
+  <g transform="translate(860,36)">
+    <rect x="0" y="0" width="320" height="168" rx="8" fill="#0b1220" opacity="0.35" />
+    <text x="16" y="44" font-family="Inter, Arial, Helvetica, sans-serif" font-size="14" fill="#fff">Screenshot 1</text>
+  </g>
+</svg>
