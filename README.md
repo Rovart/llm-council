@@ -168,14 +168,14 @@ npm run dev
 
 Below are a few screenshots of the app. Images are stored under `.github/screenshots/` to avoid bloating the main repo tree.
 
-- **Model Manager:** `.github/screenshots/screenshot1.png`
+- **Conversation:**
 
 	![Model Manager](.github/screenshots/screenshot1.png)
 
-- **Conversation view:** `.github/screenshots/screenshot2.png`
+- **Model Management:**
 
 	![Conversation view](.github/screenshots/screenshot2.png)
 
-- **Chairman output:** `.github/screenshots/screenshot3.png`
+- **Local Ollama models:**
 
 	![Chairman output](.github/screenshots/screenshot3.png)

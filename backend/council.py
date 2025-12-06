@@ -430,27 +430,31 @@ Title:"""
 
     messages = [{"role": "user", "content": title_prompt}]
 
-    # Choose a title-generation model appropriate to the provider.
-    # For Ollama, prefer the configured chairman model (if available),
-    # otherwise fall back to the first installed model. For non-Ollama
-    # providers, use a sensible default.
-    title_model = "google/gemini-2.5-flash"
-    if provider and str(provider).lower() in ('ollama', 'local'):
-        try:
-            from . import ollama
-            installed = await ollama.list_models()
-            # Prefer explicit chairman model when available
+    # Choose a title-generation model: prefer the configured chairman model
+    # (works for hybrid mode), otherwise fall back based on provider.
+    title_model = None
+    
+    # First, try to use the configured chairman model
+    try:
+        chair = get_chairman_model() or CHAIRMAN_MODEL
+        if chair:
+            title_model = chair
+    except Exception:
+        pass
+    
+    # If no chairman, select based on provider or available models
+    if not title_model:
+        if provider and str(provider).lower() in ('ollama', 'local', 'hybrid'):
             try:
-                chair = get_chairman_model() or CHAIRMAN_MODEL
-            except Exception:
-                chair = None
-            if chair and installed and chair in installed:
-                title_model = chair
-            else:
-                # pick the first installed model if available
+                from . import ollama
+                installed = await ollama.list_models()
                 if installed:
                     title_model = installed[0]
-        except Exception:
+            except Exception:
+                pass
+        
+        # Final fallback to OpenRouter model
+        if not title_model:
             title_model = "google/gemini-2.5-flash"
 
     response = await query_model(title_model, messages, timeout=30.0, provider=provider)
