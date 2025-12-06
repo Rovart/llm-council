@@ -10,6 +10,8 @@ export default function Sidebar({
   onNewConversation,
   onConversationsChange,
   activeStreams,
+  isOpen,
+  onClose,
 }) {
   const deleteConversation = async (id) => {
     try {
@@ -24,9 +26,14 @@ export default function Sidebar({
   };
 
   return (
-    <div className="sidebar">
+    <div className={`sidebar ${isOpen ? 'open' : ''}`}>
       <div className="sidebar-header">
-        <h1>LLM Council</h1>
+        <div className="sidebar-header-top">
+          <h1>LLM Council</h1>
+          <button className="sidebar-close-btn" onClick={onClose} aria-label="Close sidebar">
+            ✕
+          </button>
+        </div>
         <button className="new-conversation-btn" onClick={onNewConversation}>
           + New Conversation
         </button>

@@ -9,3 +9,48 @@
   color: var(--chamber-ink);
   font-family: 'Crimson Pro', serif;
 }
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .app {
+    flex-direction: column;
+    padding-top: 56px; /* Space for navbar */
+  }
+
+  .app .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    border-right: none;
+  }
+
+  .app .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .app .chat-interface {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Overlay when sidebar is open */
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 40;
+  }
+
+  .sidebar-overlay.visible {
+    display: block;
+  }
+}

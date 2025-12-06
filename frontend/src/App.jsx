@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
+import Navbar from './components/Navbar';
 import { api } from './api';
 import './App.css';
 
@@ -11,6 +12,7 @@ function App() {
   const [loadingConversationId, setLoadingConversationId] = useState(null); // Track which conversation is loading
   const [currentSkipStages, setCurrentSkipStages] = useState(false);
   const [activeStreams, setActiveStreams] = useState(new Set()); // For sidebar display
+  const [sidebarOpen, setSidebarOpen] = useState(false); // Mobile sidebar toggle
 
   // Cache for in-flight conversation states (streaming updates stored by conversation ID)
   const conversationCacheRef = useRef({});
@@ -764,15 +766,37 @@ function App() {
     await handleSendMessage(content, provider, currentSkipStages);
   };
 
+  // Close sidebar when selecting a conversation on mobile
+  const handleSelectConversationMobile = (id) => {
+    handleSelectConversation(id);
+    setSidebarOpen(false);
+  };
+
+  // Close sidebar when creating new conversation on mobile
+  const handleNewConversationMobile = async () => {
+    await handleNewConversation();
+    setSidebarOpen(false);
+  };
+
   return (
     <div className="app">
+      <Navbar 
+        onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+        title={currentConversation?.title || 'LLM Council'} 
+      />
+      <div 
+        className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`} 
+        onClick={() => setSidebarOpen(false)} 
+      />
       <Sidebar
         conversations={conversations}
         currentConversationId={currentConversationId}
-        onSelectConversation={handleSelectConversation}
-        onNewConversation={handleNewConversation}
+        onSelectConversation={handleSelectConversationMobile}
+        onNewConversation={handleNewConversationMobile}
         onConversationsChange={setConversations}
         activeStreams={activeStreams}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
       <ChatInterface
         conversation={currentConversation}
