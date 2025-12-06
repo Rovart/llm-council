@@ -167,19 +167,27 @@ if [ "${USE_OLLAMA:-false}" = "true" ] || [ "${USE_OLLAMA:-false}" = "1" ]; then
 	fi
 fi
 
-# Start backend
-echo "Starting backend on http://localhost:8001..."
-uv run python -m backend.main &
-BACKEND_PID=$!
+# Start backend (bind to 0.0.0.0 so accessible on LAN)
+echo "Starting backend on http://0.0.0.0:8001..."
+# Prefer uvicorn directly so we can pass host/port flags
+if command -v uvicorn >/dev/null 2>&1; then
+	nohup uvicorn backend.main:app --host 0.0.0.0 --port 8001 > /tmp/backend.log 2>&1 &
+	BACKEND_PID=$!
+else
+	# Fallback to uv runner
+	uv run python -m backend.main &
+	BACKEND_PID=$!
+fi
 echo "$BACKEND_PID" > "$PID_DIR/backend.pid"
 
 # Wait a bit for backend to start
 sleep 2
 
-# Start frontend
-echo "Starting frontend on http://localhost:5173..."
+# Start frontend (expose to LAN)
+echo "Starting frontend on http://0.0.0.0:5173..."
 cd frontend
-npm run dev &
+# Pass -- --host to npm script so Vite binds to 0.0.0.0
+npm run dev -- --host 0.0.0.0 &
 FRONTEND_PID=$!
 echo "$FRONTEND_PID" > "$PID_DIR/frontend.pid"
 
